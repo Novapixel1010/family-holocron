@@ -52,6 +52,39 @@ export function todayISO(now = new Date()): string {
   return `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())}`;
 }
 
+export interface DateCheck {
+  value: string; // normalized when ISO, else as entered
+  iso?: string; // set when the value is a valid ISO date
+  error?: string;
+}
+
+/**
+ * Validates one date field. Empty is allowed. `initial` is the stored value: a
+ * pre-standard value (e.g. "ABT 1850" from an import) is accepted only while it is
+ * left unchanged. Mirrors gendate.CheckField on the server.
+ */
+export function checkDate(raw: string, initial = "", opts: { allowFuture?: boolean; today?: string } = {}): DateCheck {
+  const v = raw.trim();
+  if (!v) return { value: "" };
+  const p = parseISODate(v);
+  if (!p.ok) return v === initial ? { value: v } : { value: v, error: p.error };
+  if (!opts.allowFuture && compareISO(p.date.value, opts.today ?? todayISO()) > 0) return { value: p.date.value, error: "Can't be in the future." };
+  return { value: p.date.value, iso: p.date.value };
+}
+
+export interface RangeCheck {
+  start: DateCheck;
+  end: DateCheck;
+}
+
+/** Validates a start/end pair; the end may not precede the start (at shared precision). */
+export function checkDateRange(start: string, end: string, initialStart = "", initialEnd = "", beforeMsg = "Can't be before the start date", today = todayISO()): RangeCheck {
+  const s = checkDate(start, initialStart, { today });
+  const e = checkDate(end, initialEnd, { today });
+  if (s.iso && e.iso && !e.error && compareISO(e.iso, s.iso) < 0) e.error = `${beforeMsg} (${s.iso}).`;
+  return { start: s, end: e };
+}
+
 export interface VitalsCheck {
   birthError?: string;
   deathError?: string;
@@ -60,31 +93,14 @@ export interface VitalsCheck {
   death?: string;
 }
 
-/**
- * Validates birth/death input. `initial*` are the stored values: a pre-standard value
- * (e.g. "ABT 1850" from an import) is accepted only while it is left unchanged.
- */
+/** Birth/death validation: a date range plus gentle warnings for unusual values. */
 export function checkVitals(birth: string, death: string, initialBirth = "", initialDeath = "", today = todayISO()): VitalsCheck {
-  const out: VitalsCheck = { warnings: [] };
-  const one = (raw: string, initial: string): { iso?: string; error?: string; value: string } => {
-    const v = raw.trim();
-    if (!v) return { value: "" };
-    const p = parseISODate(v);
-    if (!p.ok) return v === initial ? { value: v } : { error: p.error, value: v };
-    if (compareISO(p.date.value, today) > 0) return { error: "Can't be in the future.", value: v };
-    return { iso: p.date.value, value: p.date.value };
-  };
-  const b = one(birth, initialBirth);
-  const d = one(death, initialDeath);
-  out.birthError = b.error;
-  out.deathError = d.error;
-  out.birth = b.value;
-  out.death = d.value;
-  if (b.iso && d.iso) {
-    if (compareISO(d.iso, b.iso) < 0) out.deathError = `Can't be before the birth date (${b.iso}).`;
-    else if (Number(d.iso.slice(0, 4)) - Number(b.iso.slice(0, 4)) > 120) out.warnings.push("That’s a lifespan of more than 120 years — please double-check the dates.");
+  const { start: b, end: d } = checkDateRange(birth, death, initialBirth, initialDeath, "Can't be before the birth date", today);
+  const out: VitalsCheck = { warnings: [], birthError: b.error, deathError: d.error, birth: b.value, death: d.value };
+  if (b.iso && d.iso && !d.error && Number(d.iso.slice(0, 4)) - Number(b.iso.slice(0, 4)) > 120) {
+    out.warnings.push("That’s a lifespan of more than 120 years — please double-check the dates.");
   }
-  if (b.iso && !d.iso && !out.deathError && Number(today.slice(0, 4)) - Number(b.iso.slice(0, 4)) > 120 && !death.trim()) {
+  if (b.iso && !b.error && !death.trim() && Number(today.slice(0, 4)) - Number(b.iso.slice(0, 4)) > 120) {
     out.warnings.push("Born more than 120 years ago with no death date — consider marking them deceased.");
   }
   return out;
@@ -94,11 +110,12 @@ const QUAL: Record<string, string> = { ABT: "c.", ABOUT: "c.", CIRCA: "c.", EST:
 const MON: Record<string, number> = { JAN: 1, FEB: 2, MAR: 3, APR: 4, MAY: 5, JUN: 6, JUL: 7, AUG: 8, SEP: 9, OCT: 10, NOV: 11, DEC: 12 };
 
 /**
- * Display form for birth/death dates: always YYYY-MM-DD (or YYYY-MM / YYYY).
+ * Display form for every date in the app (vitals, events, relationships, timeline):
+ * always YYYY-MM-DD (or YYYY-MM / YYYY).
  * Older stored values are shown gracefully: "12 MAR 1850" → "1850-03-12",
  * "ABT 1850" → "c. 1850"; anything unrecognized is shown as written.
  */
-export function formatVitalDate(raw: string | null | undefined): string {
+export function formatDate(raw: string | null | undefined): string {
   const s = (raw ?? "").trim();
   if (!s) return "";
   const p = parseISODate(s);
@@ -118,10 +135,13 @@ export function formatVitalDate(raw: string | null | undefined): string {
   return qual ? `${qual} ${iso}` : iso;
 }
 
+/** Older name for formatDate. */
+export const formatVitalDate = formatDate;
+
 /** "1890-03-12 – 1960-01-02", "b. 1890-03-12", "d. 1960", "Deceased" or "". */
 export function vitalRange(p: { birthDate: string; deathDate: string; deceased?: boolean }): string {
-  const b = formatVitalDate(p.birthDate);
-  const d = formatVitalDate(p.deathDate);
+  const b = formatDate(p.birthDate);
+  const d = formatDate(p.deathDate);
   if (b && d) return `${b} – ${d}`;
   if (b) return p.deceased ? `${b} – ?` : `b. ${b}`;
   if (d) return `d. ${d}`;
@@ -154,4 +174,11 @@ export function addMonths(y: number, m: number, d: number, delta: number): [numb
 
 export function isoOf(y: number, m: number, d: number): string {
   return `${String(y).padStart(4, "0")}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+}
+
+/** Hint for a stored value that predates the YYYY-MM-DD standard, or undefined. */
+export function legacyDateHint(value: string, initial: string): string | undefined {
+  return value && value === initial && !parseISODate(value).ok
+    ? `Recorded as “${value}” before dates were standardized. Pick a date, or enter YYYY if only the year is known.`
+    : undefined;
 }

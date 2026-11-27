@@ -125,10 +125,14 @@ function CalendarPopover({
   const parsed = parseISODate(value.trim());
   const selected = parsed.ok && parsed.date.precision === "day" ? parsed.date.value : "";
   const [maxY, maxM, maxD] = max.split("-").map(Number);
-  // Initial view: the typed date (even partial), else today.
+  // Initial view: the typed date (even partial), else today's month — clamped to max,
+  // which may lie far in the future (e.g. 9999-12-31 for upcoming family milestones).
   const init = (): [number, number, number] => {
     if (parsed.ok) return [parsed.date.y, parsed.date.m || 1, parsed.date.d || 1];
-    return [maxY, maxM, Math.min(maxD, 1)];
+    const t = todayISO();
+    const start = t < max ? t : max;
+    const [ty, tm, td] = start.split("-").map(Number);
+    return [ty, tm, td];
   };
   const [cursor, setCursor] = useState<[number, number, number]>(init);
   const [y, m, d] = cursor;

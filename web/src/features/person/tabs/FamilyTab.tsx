@@ -12,8 +12,7 @@ import { ConfirmDialog, Modal } from "@/components/ui/Modal";
 import { PersonPicker } from "@/components/ui/PersonPicker";
 import { EmptyState, InlineError, QueryBoundary } from "@/components/ui/States";
 import { useToast } from "@/components/ui/Toast";
-import { dateHint } from "@/features/people/PersonForm";
-import { checkVitals } from "@/lib/dates";
+import { checkDate, checkDateRange, checkVitals, formatDate, legacyDateHint } from "@/lib/dates";
 import { lifespan, personName, titleCase } from "@/lib/format";
 import type { PersonTabProps } from "@/plugins/registry";
 
@@ -73,7 +72,7 @@ function Group({ title, items, onAdd, addLabel, onEdit, empty, note }: {
               <div className="min-w-0 flex-1">
                 <Link to={`/people/${p.id}`} className="block truncate font-medium hover:underline">{personName(p)}</Link>
                 <div className="text-xs text-stone-500">
-                  {[lifespan(p), r && r.subtype !== "biological" && r.subtype !== "unknown" ? titleCase(r.subtype) : "", r?.startDate && `from ${r.startDate}`].filter(Boolean).join(" · ")}
+                  {[lifespan(p), r && r.subtype !== "biological" && r.subtype !== "unknown" ? titleCase(r.subtype) : "", r?.startDate && `from ${formatDate(r.startDate)}`].filter(Boolean).join(" · ")}
                 </div>
               </div>
               {onEdit && r && <Button size="sm" variant="ghost" onClick={() => onEdit(r)} aria-label={`Edit relationship with ${personName(p)}`}>Edit</Button>}
@@ -92,6 +91,8 @@ function AddRelativeModal({ person, kind, onClose }: { person: Person; kind: Kin
   const [subtype, setSubtype] = useState(kind === "spouse" ? "married" : "biological");
   const [startDate, setStartDate] = useState("");
   const [birthTouched, setBirthTouched] = useState(false);
+  const [sinceTouched, setSinceTouched] = useState(false);
+  const since = checkDate(startDate);
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const createPerson = useCreatePerson();
@@ -104,8 +105,9 @@ function AddRelativeModal({ person, kind, onClose }: { person: Person; kind: Kin
     e.preventDefault();
     setError(null);
     setBusy(true);
-    if (mode === "new" && checkVitals(np.birthDate, "").birthError) {
+    if ((mode === "new" && checkVitals(np.birthDate, "").birthError) || (kind === "spouse" && since.error)) {
       setBirthTouched(true);
+      setSinceTouched(true);
       setBusy(false);
       return;
     }
@@ -128,7 +130,7 @@ function AddRelativeModal({ person, kind, onClose }: { person: Person; kind: Kin
       const input: RelationshipInput =
         kind === "parent" ? { type: "parent", person1Id: target.id, person2Id: person.id, subtype, startDate: "", endDate: "", notes: "" }
         : kind === "child" ? { type: "parent", person1Id: person.id, person2Id: target.id, subtype, startDate: "", endDate: "", notes: "" }
-        : { type: "spouse", person1Id: person.id, person2Id: target.id, subtype, startDate, endDate: "", notes: "" };
+        : { type: "spouse", person1Id: person.id, person2Id: target.id, subtype, startDate: since.value, endDate: "", notes: "" };
       await createRel.mutateAsync(input);
       toast(`${personName(target)} linked as ${label}`);
       onClose();
@@ -163,7 +165,10 @@ function AddRelativeModal({ person, kind, onClose }: { person: Person; kind: Kin
         )}
         <Select label="Relationship" value={subtype} onChange={(e) => setSubtype(e.target.value)}
           options={(kind === "spouse" ? SPOUSE_SUBTYPES : PARENT_SUBTYPES).map((s) => ({ value: s, label: titleCase(s) }))} />
-        {kind === "spouse" && <TextInput label="Since (optional)" value={startDate} onChange={(e) => setStartDate(e.target.value)} hint={dateHint(startDate)} />}
+        {kind === "spouse" && (
+          <DateField label="Since (optional)" value={startDate} onChange={setStartDate} onBlur={() => setSinceTouched(true)}
+            error={(sinceTouched && since.error) || fields.startDate} />
+        )}
         <InlineError error={error} />
         <div className="flex justify-end gap-2">
           <Button onClick={onClose} disabled={busy}>Cancel</Button>
@@ -181,12 +186,16 @@ function EditRelationshipModal({ rel, onClose }: { rel: Relationship; onClose: (
   const del = useDeleteRelationship();
   const toast = useToast();
   const fields = update.error instanceof ApiError ? update.error.fields : {};
+  const range = checkDateRange(r.startDate, r.endDate, rel.startDate, rel.endDate);
+  const [touched, setTouched] = useState({ start: false, end: false });
   return (
     <Modal open onClose={onClose} title={rel.type === "spouse" ? "Edit partnership" : "Edit parent link"}>
       <form className="space-y-4" onSubmit={async (e) => {
         e.preventDefault();
+        setTouched({ start: true, end: true });
+        if (range.start.error || range.end.error) return;
         try {
-          await update.mutateAsync({ id: rel.id, input: r });
+          await update.mutateAsync({ id: rel.id, input: { ...r, startDate: range.start.value, endDate: range.end.value } });
           toast("Relationship updated");
           onClose();
         } catch { /* inline */ }
@@ -195,8 +204,10 @@ function EditRelationshipModal({ rel, onClose }: { rel: Relationship; onClose: (
           options={(rel.type === "spouse" ? SPOUSE_SUBTYPES : PARENT_SUBTYPES).map((s) => ({ value: s, label: titleCase(s) }))} />
         {rel.type === "spouse" && (
           <div className="grid gap-3 sm:grid-cols-2">
-            <TextInput label="Start date" value={r.startDate} onChange={(e) => setR({ ...r, startDate: e.target.value })} hint={dateHint(r.startDate)} />
-            <TextInput label="End date" value={r.endDate} onChange={(e) => setR({ ...r, endDate: e.target.value })} hint={dateHint(r.endDate)} />
+            <DateField label="Start date" value={r.startDate} onChange={(v) => setR({ ...r, startDate: v })} onBlur={() => setTouched((t) => ({ ...t, start: true }))}
+              error={(touched.start && range.start.error) || fields.startDate} hint={legacyDateHint(r.startDate, rel.startDate)} />
+            <DateField label="End date" value={r.endDate} onChange={(v) => setR({ ...r, endDate: v })} onBlur={() => setTouched((t) => ({ ...t, end: true }))}
+              error={(touched.end && range.end.error) || fields.endDate} hint={legacyDateHint(r.endDate, rel.endDate)} />
           </div>
         )}
         <TextArea label="Notes" rows={3} value={r.notes} onChange={(e) => setR({ ...r, notes: e.target.value })} />

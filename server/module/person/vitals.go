@@ -1,6 +1,7 @@
 package person
 
 import (
+	"strings"
 	"time"
 
 	"github.com/novapixel1010/family-holocron/internal/gendate"
@@ -15,38 +16,42 @@ import (
 // if it is unchanged from the stored record, so editing other fields never fails
 // because of an old date. Death may not precede birth, and neither may be in the future.
 func checkVitalDates(in *store.PersonInput, before *store.Person, now time.Time) error {
-	fields := map[string]string{}
-	check := func(field string, value *string, stored string) (iso string) {
-		v := *value
-		if v == "" {
-			return ""
-		}
-		n, err := gendate.NormalizeISO(v)
-		if err != nil {
-			if before != nil && v == stored {
-				return "" // unchanged legacy value: keep as is, skip comparisons
-			}
-			fields[field] = err.Error()
-			return ""
-		}
-		if gendate.AfterToday(n, now) {
-			fields[field] = "can't be in the future"
-			return ""
-		}
-		*value = n
-		return n
-	}
 	var storedBirth, storedDeath string
 	if before != nil {
 		storedBirth, storedDeath = before.BirthDate, before.DeathDate
 	}
-	birth := check("birthDate", &in.BirthDate, storedBirth)
-	death := check("deathDate", &in.DeathDate, storedDeath)
-	if birth != "" && death != "" && gendate.CompareISO(death, birth) < 0 {
-		fields["deathDate"] = "can't be before the birth date (" + birth + ")"
+	return checkRange(&in.BirthDate, storedBirth, "birthDate", &in.DeathDate, storedDeath, "deathDate",
+		"can't be before the birth date", false, now)
+}
+
+// checkRelationshipDates applies the same standard to a relationship's start/end dates.
+func checkRelationshipDates(in *store.RelationshipInput, before *store.Relationship, now time.Time) error {
+	var storedStart, storedEnd string
+	if before != nil {
+		storedStart, storedEnd = before.StartDate, before.EndDate
+	}
+	return checkRange(&in.StartDate, storedStart, "startDate", &in.EndDate, storedEnd, "endDate",
+		"can't be before the start date", false, now)
+}
+
+// checkRange validates a start/end pair of date fields in place.
+func checkRange(start *string, storedStart, startField string, end *string, storedEnd, endField, beforeMsg string, allowFuture bool, now time.Time) error {
+	fields := map[string]string{}
+	*start, *end = strings.TrimSpace(*start), strings.TrimSpace(*end)
+	s, sISO, msg := gendate.CheckField(*start, storedStart, allowFuture, now)
+	if msg != "" {
+		fields[startField] = msg
+	}
+	e, eISO, msg := gendate.CheckField(*end, storedEnd, allowFuture, now)
+	if msg != "" {
+		fields[endField] = msg
+	}
+	if sISO && eISO && fields[endField] == "" && gendate.CompareISO(e, s) < 0 {
+		fields[endField] = beforeMsg + " (" + s + ")"
 	}
 	if len(fields) > 0 {
 		return &store.ValidationError{Message: "Please correct the highlighted dates.", Fields: fields}
 	}
+	*start, *end = s, e
 	return nil
 }

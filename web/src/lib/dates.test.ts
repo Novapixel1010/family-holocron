@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addDays, addMonths, checkVitals, compareISO, daysInMonth, firstWeekday, formatVitalDate, parseISODate, vitalRange } from "./dates";
+import { addDays, addMonths, checkDate, checkDateRange, checkVitals, compareISO, daysInMonth, firstWeekday, formatVitalDate, parseISODate, vitalRange } from "./dates";
 
 describe("parseISODate", () => {
   it("accepts and normalizes ISO dates", () => {
@@ -74,5 +74,20 @@ describe("calendar math", () => {
     expect(addMonths(1890, 1, 31, 1)).toEqual([1890, 2, 28]);
     expect(addMonths(1890, 1, 15, -1)).toEqual([1889, 12, 15]);
     expect(addDays(50, 3, 1, -1)).toEqual([50, 2, 28]); // no 1900s remapping for small years
+  });
+});
+
+describe("checkDate / checkDateRange", () => {
+  const today = "2026-11-27";
+  it("validates single dates, with future allowed on request", () => {
+    expect(checkDate("1901-4-2", "", { today })).toEqual({ value: "1901-04-02", iso: "1901-04-02" });
+    expect(checkDate("2 APR 1901", "", { today }).error).toMatch(/YYYY-MM-DD/);
+    expect(checkDate("2030-01-01", "", { today }).error).toMatch(/future/);
+    expect(checkDate("2030-01-01", "", { today, allowFuture: true }).error).toBeUndefined();
+    expect(checkDate("BEF 1880", "BEF 1880", { today })).toEqual({ value: "BEF 1880" });
+  });
+  it("rejects an end before the start", () => {
+    expect(checkDateRange("1925-06-01", "1920", "", "", undefined, today).end.error).toMatch(/before the start date \(1925-06-01\)/);
+    expect(checkDateRange("1925", "1925-12", "", "", undefined, today).end.error).toBeUndefined();
   });
 });

@@ -73,3 +73,25 @@ func AfterToday(iso string, now time.Time) bool {
 	today := now.UTC().Add(24 * time.Hour).Format("2006-01-02")
 	return iso[:min(len(iso), len(today))] > today[:min(len(iso), len(today))]
 }
+
+// CheckField validates a date field on an API write. Empty is allowed. A valid ISO
+// value is returned normalized (iso = true). A value that predates the standard
+// (e.g. "ABT 1850" from a GEDCOM import) is accepted unchanged only if it equals
+// stored, the record's current value, so old records stay editable. msg is a
+// user-facing error ("" when the value is acceptable).
+func CheckField(value, stored string, allowFuture bool, now time.Time) (normalized string, iso bool, msg string) {
+	if value == "" {
+		return "", false, ""
+	}
+	n, err := NormalizeISO(value)
+	if err != nil {
+		if value == stored {
+			return value, false, ""
+		}
+		return value, false, err.Error()
+	}
+	if !allowFuture && AfterToday(n, now) {
+		return n, false, "can't be in the future"
+	}
+	return n, true, ""
+}
