@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/novapixel1010/family-holocron/server/apiutil"
 	"github.com/novapixel1010/family-holocron/store"
@@ -65,6 +66,9 @@ func (m *Module) create(w http.ResponseWriter, r *http.Request) error {
 	if err := apiutil.Decode(r, &in); err != nil {
 		return err
 	}
+	if err := checkVitalDates(&in, nil, time.Now()); err != nil {
+		return err
+	}
 	p, err := m.Store.CreatePerson(r.Context(), apiutil.ActorFrom(r.Context()), in)
 	if err != nil {
 		return err
@@ -98,6 +102,13 @@ func (m *Module) update(w http.ResponseWriter, r *http.Request) error {
 	}
 	var in store.PersonInput
 	if err := apiutil.Decode(r, &in); err != nil {
+		return err
+	}
+	before, err := m.Store.GetPerson(r.Context(), id)
+	if err != nil {
+		return notFound(err, "Person")
+	}
+	if err := checkVitalDates(&in, before, time.Now()); err != nil {
 		return err
 	}
 	p, err := m.Store.UpdatePerson(r.Context(), apiutil.ActorFrom(r.Context()), id, in)
@@ -223,6 +234,9 @@ func (m *Module) createRel(w http.ResponseWriter, r *http.Request) error {
 	if err := apiutil.Decode(r, &in); err != nil {
 		return err
 	}
+	if err := checkRelationshipDates(&in, nil, time.Now()); err != nil {
+		return err
+	}
 	rel, err := m.Store.CreateRelationship(r.Context(), apiutil.ActorFrom(r.Context()), in)
 	if err != nil {
 		return err
@@ -249,6 +263,13 @@ func (m *Module) updateRel(w http.ResponseWriter, r *http.Request) error {
 	}
 	var in store.RelationshipInput
 	if err := apiutil.Decode(r, &in); err != nil {
+		return err
+	}
+	before, err := m.Store.GetRelationship(r.Context(), id)
+	if err != nil {
+		return notFound(err, "Relationship")
+	}
+	if err := checkRelationshipDates(&in, before, time.Now()); err != nil {
 		return err
 	}
 	rel, err := m.Store.UpdateRelationship(r.Context(), apiutil.ActorFrom(r.Context()), id, in)

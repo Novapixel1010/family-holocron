@@ -93,6 +93,21 @@ Birth and death live on `person` (they are 1:1 vital facts and drive the tree
 display); the timeline merges them in as synthetic `birth`/`death` items, so
 the user sees a single chronological stream.
 
+**Date standard.** Every date a person enters — birth and death, event dates and
+relationship start/end dates — is ISO `YYYY-MM-DD`, or `YYYY-MM` / `YYYY` when the day
+or month is unknown, and every date is displayed that way (profile, tree, timeline,
+family cards). The API (`POST`/`PUT /persons`, `/events`, `/relationships`) normalizes
+padding (`1890-3-5` → `1890-03-05`) and rejects anything else, impossible calendar
+dates, and future dates (except family milestones, which may be upcoming); a death
+before the birth or a relationship ending before it starts is rejected, compared at
+the precision both share (`1890-06` vs `1890` is fine). Values that predate the
+standard (e.g. `ABT 1850` from a GEDCOM import) stay accepted while left unchanged, so
+such records remain editable; the UI shows them gracefully (`c. 1850`, `before 1880`,
+`12 MAR 1850` → `1850-03-12`) and offers to replace them. Forms use `DateField`:
+typeable, clearable, with a calendar popover (portaled above modals, flips/clamps to
+stay on screen, keyboard operable). GEDCOM import still accepts any GEDCOM date.
+Media "date taken" keeps the flexible format.
+
 ---
 
 ## 3. HTTP API (`/api/v1`, JSON, camelCase)

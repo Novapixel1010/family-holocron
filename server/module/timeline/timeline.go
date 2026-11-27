@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/novapixel1010/family-holocron/internal/gendate"
 	"github.com/novapixel1010/family-holocron/server/apiutil"
@@ -58,6 +59,9 @@ func (m *Module) create(w http.ResponseWriter, r *http.Request) error {
 	if err := apiutil.Decode(r, &in); err != nil {
 		return err
 	}
+	if err := checkEventDate(&in, ""); err != nil {
+		return err
+	}
 	e, err := m.Store.CreateEvent(r.Context(), apiutil.ActorFrom(r.Context()), in)
 	if err != nil {
 		return err
@@ -87,6 +91,16 @@ func (m *Module) update(w http.ResponseWriter, r *http.Request) error {
 	}
 	var in store.EventInput
 	if err := apiutil.Decode(r, &in); err != nil {
+		return err
+	}
+	before, err := m.Store.GetEvent(r.Context(), id)
+	if err == store.ErrNotFound {
+		return apiutil.NotFound("Event")
+	}
+	if err != nil {
+		return err
+	}
+	if err := checkEventDate(&in, before.Date); err != nil {
 		return err
 	}
 	e, err := m.Store.UpdateEvent(r.Context(), apiutil.ActorFrom(r.Context()), id, in)
@@ -239,3 +253,16 @@ func kindOrder(k string) string {
 }
 
 func itoa(n int64) string { return strconv.FormatInt(n, 10) }
+
+// checkEventDate enforces the YYYY-MM-DD standard (or YYYY-MM / YYYY) on event dates,
+// normalizing in place. Family milestones may be upcoming, so only they may be in the
+// future. A pre-standard value (e.g. from a GEDCOM import) is accepted while unchanged.
+func checkEventDate(in *store.EventInput, stored string) error {
+	in.Date = strings.TrimSpace(in.Date)
+	n, _, msg := gendate.CheckField(in.Date, stored, in.Type == "family", time.Now())
+	if msg != "" {
+		return &store.ValidationError{Message: "Please correct the date.", Fields: map[string]string{"date": msg}}
+	}
+	in.Date = n
+	return nil
+}

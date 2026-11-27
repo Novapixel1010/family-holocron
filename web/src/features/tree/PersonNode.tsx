@@ -1,7 +1,7 @@
 import { memo } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { Avatar } from "@/components/ui/Avatar";
-import { lifespan } from "@/lib/format";
+import { vitalRange } from "@/lib/dates";
 import { PERSON_H, PERSON_W, type PersonFlowNode } from "./graph";
 import { useTreeActions } from "./TreeContext";
 
@@ -12,7 +12,7 @@ const hiddenHandle = "!h-px !w-px !min-h-0 !min-w-0 !border-0 !bg-transparent !o
 export const PersonNode = memo(function PersonNode({ data }: NodeProps<PersonFlowNode>) {
   const { direction, selectedId, loadingId, collapsed, onToggle, onFocus } = useTreeActions();
   const p = data.person;
-  const years = lifespan({ birthDate: p.birthDate, deathDate: p.deathDate, deceased: !p.living });
+  const years = vitalRange({ birthDate: p.birthDate, deathDate: p.deathDate, deceased: !p.living });
   const selected = selectedId === p.id;
   const isCollapsed = collapsed.has(p.id);
   const canToggle = data.outward > 0 || p.hasMore;
@@ -30,11 +30,11 @@ export const PersonNode = memo(function PersonNode({ data }: NodeProps<PersonFlo
       <Handle type="source" position={Position.Bottom} id="bottom" isConnectable={false} className={hiddenHandle} />
       <span aria-hidden="true" className={`my-3 ml-1.5 w-1 shrink-0 rounded ${sexBar[p.sex] ?? sexBar.U}`} />
       <button type="button" aria-label={`${p.name}${years ? `, ${years}` : ""}`} aria-pressed={selected}
-        className="nodrag nopan flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 rounded-xl py-2 pl-2 pr-8 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
+        className="nodrag nopan flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 rounded-xl py-2 pl-2 pr-2 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
         <Avatar name={p.name} sex={p.sex} mediaId={p.portraitMediaId} size={40} />
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-semibold text-stone-900 dark:text-stone-100">{p.name}</span>
-          <span className="block truncate text-xs text-stone-500 dark:text-stone-400">{years || (p.living ? "Living" : "Dates unknown")}</span>
+          <span className="block truncate pr-6 text-sm font-semibold text-stone-900 dark:text-stone-100">{p.name}</span>
+          <span className="block truncate text-[11px] tabular-nums tracking-tight text-stone-500 dark:text-stone-400" title={years || undefined}>{years || (p.living ? "Living" : "Dates unknown")}</span>
           <span className="mt-1 flex gap-1">
             {data.isRoot && <span className="rounded-full bg-brand-100 px-1.5 py-px text-[10px] font-medium text-brand-800 dark:bg-brand-900/60 dark:text-brand-200">Root</span>}
             {p.role === "partner" && <span className="rounded-full bg-stone-100 px-1.5 py-px text-[10px] font-medium text-stone-600 dark:bg-stone-800 dark:text-stone-300">Partner</span>}

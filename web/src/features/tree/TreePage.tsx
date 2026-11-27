@@ -16,7 +16,7 @@ import { PageHeader } from "@/components/ui/Page";
 import { PersonPicker } from "@/components/ui/PersonPicker";
 import { EmptyState, ErrorState, errorMessage, LoadingState, Spinner } from "@/components/ui/States";
 import { useToast } from "@/components/ui/Toast";
-import { formatGenDate, lifespan } from "@/lib/format";
+import { formatVitalDate, vitalRange } from "@/lib/dates";
 import { buildFlow, mergeGraph, visibleGraph, type FlowResult, type PersonNodeData, type TreeGraph } from "./graph";
 import { PersonNode } from "./PersonNode";
 import { TreeActionsContext, useTreeActions, type TreeActions } from "./TreeContext";
@@ -269,7 +269,11 @@ function SidePanel({ person: node, onClose, onFocus }: { person: GraphPerson; on
         <Avatar name={node.name} sex={node.sex} mediaId={node.portraitMediaId} size={52} />
         <div className="min-w-0 flex-1">
           <h2 className="font-serif text-lg font-semibold leading-tight">{node.name}</h2>
-          <p className="text-sm text-stone-500">{lifespan({ birthDate: node.birthDate, deathDate: node.deathDate, deceased: !node.living }) || "Dates unknown"}</p>
+          <p className="text-sm tabular-nums text-stone-500">
+            {/* Each date stays on one line; wrapping may only happen at the dash between them. */}
+            {(vitalRange({ birthDate: node.birthDate, deathDate: node.deathDate, deceased: !node.living }) || "Dates unknown")
+              .split(" – ").map((part, i) => <span key={i} className="whitespace-nowrap">{i > 0 && " – "}{part}</span>)}
+          </p>
         </div>
         <button onClick={onClose} className="rounded p-1 text-stone-500 hover:bg-stone-100 dark:hover:bg-stone-800" aria-label="Close panel">✕</button>
       </div>
@@ -280,8 +284,8 @@ function SidePanel({ person: node, onClose, onFocus }: { person: GraphPerson; on
           <ErrorState error={person.error} onRetry={() => person.refetch()} />
         ) : (
           <div className="space-y-2">
-            {(person.data.birthDate || person.data.birthPlace) && <p><span className="font-medium">Born:</span> {[formatGenDate(person.data.birthDate), person.data.birthPlace].filter(Boolean).join(", ")}</p>}
-            {(person.data.deathDate || person.data.deathPlace) && <p><span className="font-medium">Died:</span> {[formatGenDate(person.data.deathDate), person.data.deathPlace].filter(Boolean).join(", ")}</p>}
+            {(person.data.birthDate || person.data.birthPlace) && <p><span className="font-medium">Born:</span> {[formatVitalDate(person.data.birthDate), person.data.birthPlace].filter(Boolean).join(", ")}</p>}
+            {(person.data.deathDate || person.data.deathPlace) && <p><span className="font-medium">Died:</span> {[formatVitalDate(person.data.deathDate), person.data.deathPlace].filter(Boolean).join(", ")}</p>}
             {person.data.about ? (
               <div className="line-clamp-6 text-stone-600 dark:text-stone-300"><Markdown>{person.data.about.slice(0, 600)}</Markdown></div>
             ) : (

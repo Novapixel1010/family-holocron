@@ -10,7 +10,8 @@ import { ConfirmDialog, Modal } from "@/components/ui/Modal";
 import { PersonPicker } from "@/components/ui/PersonPicker";
 import { ErrorState, InlineError, LoadingState } from "@/components/ui/States";
 import { useToast } from "@/components/ui/Toast";
-import { dateHint } from "@/features/people/PersonForm";
+import { DateField } from "@/components/ui/DateField";
+import { checkDate, legacyDateHint } from "@/lib/dates";
 import { titleCase } from "@/lib/format";
 
 const NO_PEOPLE_TYPES = ["family", "historical"];
@@ -54,6 +55,10 @@ function EventForm({
   eventId, types, initial, attribution, onDone,
 }: { eventId?: number; types: string[]; initial: EventInput; attribution?: Parameters<typeof Attribution>[0]["value"]; onDone: () => void }) {
   const [e, setE] = useState<EventInput>(initial);
+  // Dates are YYYY-MM-DD (or YYYY-MM / YYYY). Family milestones may be upcoming, so only they may be in the future.
+  const allowFuture = e.type === "family";
+  const date = checkDate(e.date, initial.date, { allowFuture });
+  const [dateTouched, setDateTouched] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const create = useCreateEvent();
@@ -77,9 +82,12 @@ function EventForm({
   const submit = async (ev: FormEvent) => {
     ev.preventDefault();
     setError(null);
+    setDateTouched(true);
+    if (date.error) return;
+    const input = { ...e, date: date.value };
     try {
-      if (eventId) await update.mutateAsync({ id: eventId, input: e });
-      else await create.mutateAsync(e);
+      if (eventId) await update.mutateAsync({ id: eventId, input });
+      else await create.mutateAsync(input);
       toast(eventId ? "Event updated" : "Event added");
       onDone();
     } catch (err) {
@@ -94,7 +102,9 @@ function EventForm({
           options={types.map((t) => ({ value: t, label: t === "family" ? "Family milestone" : t === "historical" ? "Historical event" : titleCase(t) }))} />
         <TextInput label={e.type === "custom" ? "Title (required)" : "Title"} value={e.title} onChange={(x) => setE({ ...e, title: x.target.value })} error={fields.title}
           placeholder={e.type === "occupation" ? "e.g. Blacksmith" : e.type === "historical" ? "e.g. Great Flood of 1953" : "Optional"} />
-        <TextInput label="Date" value={e.date} onChange={(x) => setE({ ...e, date: x.target.value })} error={fields.date} hint={dateHint(e.date)} />
+        <DateField label="Date" value={e.date} onChange={(v) => setE({ ...e, date: v })} onBlur={() => setDateTouched(true)}
+          error={(dateTouched && date.error) || fields.date} max={allowFuture ? "9999-12-31" : undefined}
+          hint={legacyDateHint(e.date, initial.date) ?? (allowFuture ? "YYYY-MM-DD — family milestones may be upcoming" : undefined)} />
         <TextInput label="Place" value={e.place} onChange={(x) => setE({ ...e, place: x.target.value })} error={fields.place} />
       </div>
       <div className="space-y-2">

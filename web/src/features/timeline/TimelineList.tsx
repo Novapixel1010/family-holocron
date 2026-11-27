@@ -2,7 +2,8 @@ import { Link } from "react-router-dom";
 import type { TimelineItem } from "@/api/types";
 import { Attribution } from "@/components/ui/Attribution";
 import { Markdown } from "@/components/ui/Markdown";
-import { EVENT_ICON, formatGenDate, titleCase } from "@/lib/format";
+import { formatDate } from "@/lib/dates";
+import { EVENT_ICON, titleCase } from "@/lib/format";
 
 const kindTone: Record<string, string> = {
   birth: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-200",
@@ -50,7 +51,7 @@ export function TimelineList({ items, onOpenEvent, hidePerson }: { items: Timeli
                     <div className="flex flex-wrap items-baseline justify-between gap-2">
                       <div className="min-w-0">
                         <div className="text-xs font-medium uppercase tracking-wide text-stone-500">
-                          {formatGenDate(it.date) || "Date unknown"} · {it.type === "family" ? "Family milestone" : it.type === "historical" ? "Historical" : titleCase(it.type)}
+                          <span className="normal-case tabular-nums">{formatDate(it.date) || "Date unknown"}</span> · {it.type === "family" ? "Family milestone" : it.type === "historical" ? "Historical" : titleCase(it.type)}
                         </div>
                         {clickable ? (
                           <button onClick={() => onOpenEvent!(it.eventId!)} className="text-left font-semibold hover:text-brand-700 hover:underline dark:hover:text-brand-300">{itemTitle(it)}</button>
