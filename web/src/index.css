@@ -1,0 +1,22 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root { height: 100%; }
+
+/* Minimal typography for rendered Markdown (About, notes, descriptions). */
+.prose-holocron { @apply text-[15px] leading-relaxed text-stone-800 dark:text-stone-200; }
+.prose-holocron > * + * { @apply mt-3; }
+.prose-holocron h1 { @apply font-serif text-2xl font-semibold; }
+.prose-holocron h2 { @apply font-serif text-xl font-semibold; }
+.prose-holocron h3 { @apply text-lg font-semibold; }
+.prose-holocron ul { @apply list-disc pl-6; }
+.prose-holocron ol { @apply list-decimal pl-6; }
+.prose-holocron a { @apply text-brand-700 underline underline-offset-2 dark:text-brand-300; }
+.prose-holocron blockquote { @apply border-l-4 border-stone-300 pl-4 italic text-stone-600 dark:border-stone-600 dark:text-stone-400; }
+.prose-holocron code { @apply rounded bg-stone-100 px-1 py-0.5 text-sm dark:bg-stone-800; }
+.prose-holocron pre { @apply overflow-x-auto rounded-lg bg-stone-100 p-3 dark:bg-stone-800; }
+.prose-holocron table { @apply w-full border-collapse text-sm; }
+.prose-holocron th, .prose-holocron td { @apply border border-stone-200 px-2 py-1 text-left dark:border-stone-700; }
+.prose-holocron img { @apply max-w-full rounded-lg; }
+.prose-holocron hr { @apply border-stone-200 dark:border-stone-700; }

@@ -1,0 +1,33 @@
+# Family Holocron — start with:  docker compose up -d
+# Then open http://localhost:8080 (or HOLOCRON_HOST_PORT) and create the first admin.
+services:
+  holocron:
+    build:
+      context: .
+      args:
+        VERSION: ${HOLOCRON_VERSION:-dev}
+    image: family-holocron:${HOLOCRON_VERSION:-dev}
+    container_name: family-holocron
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      HOLOCRON_PORT: "8080"
+      HOLOCRON_DATA_DIR: /var/opt/holocron/data
+      HOLOCRON_MEDIA_DIR: /var/opt/holocron/media
+    ports:
+      - "${HOLOCRON_HOST_PORT:-8080}:8080"
+    volumes:
+      - holocron-data:/var/opt/holocron/data    # SQLite database + stored backups
+      - holocron-media:/var/opt/holocron/media  # uploaded photos & documents
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/holocron", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+volumes:
+  holocron-data:
+  holocron-media:

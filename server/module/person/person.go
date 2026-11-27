@@ -4,6 +4,8 @@ package person
 import (
 	"net/http"
 	"slices"
+	"strconv"
+	"strings"
 
 	"github.com/novapixel1010/family-holocron/server/apiutil"
 	"github.com/novapixel1010/family-holocron/store"
@@ -40,6 +42,16 @@ func (m *Module) list(w http.ResponseWriter, r *http.Request) error {
 		Sort:   store.PersonSort(q.Get("sort")),
 		Limit:  apiutil.QueryInt(r, "limit", 50, 1, 1000),
 		Offset: apiutil.QueryInt(r, "offset", 0, 0, 1<<30),
+	}
+	if ids := q.Get("ids"); ids != "" {
+		find.IDs = []int64{}
+		for _, part := range strings.Split(ids, ",") {
+			id, err := strconv.ParseInt(strings.TrimSpace(part), 10, 64)
+			if err != nil || id <= 0 {
+				return apiutil.BadRequest("invalid ids")
+			}
+			find.IDs = append(find.IDs, id)
+		}
 	}
 	items, total, err := m.Store.ListPersons(r.Context(), find)
 	if err != nil {

@@ -9,3 +9,4 @@ server/frontend/dist/*
 !server/frontend/dist/.gitkeep
 web/node_modules/
 web/coverage/
+web/*.tsbuildinfo

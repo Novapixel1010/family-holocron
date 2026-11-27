@@ -16,6 +16,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	_ "time/tzdata" // embed zone data so minimal container images work
 
 	"github.com/novapixel1010/family-holocron/internal/profile"
 	"github.com/novapixel1010/family-holocron/internal/version"
