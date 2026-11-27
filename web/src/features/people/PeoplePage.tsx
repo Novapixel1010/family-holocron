@@ -8,7 +8,8 @@ import { Button } from "@/components/ui/Button";
 import { inputClass } from "@/components/ui/Field";
 import { PageHeader } from "@/components/ui/Page";
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/States";
-import { formatGenDate, lifespan, personName } from "@/lib/format";
+import { formatVitalDate } from "@/lib/dates";
+import { lifespan, personName } from "@/lib/format";
 
 const PAGE = 50;
 
@@ -68,7 +69,7 @@ export function PeoplePage() {
                       {p.nickname && <span className="ml-1 text-stone-500">“{p.nickname}”</span>}
                     </div>
                     <div className="truncate text-sm text-stone-500">
-                      {[p.birthDate && `b. ${formatGenDate(p.birthDate)}${p.birthPlace ? `, ${p.birthPlace}` : ""}`, p.deathDate && `d. ${formatGenDate(p.deathDate)}`].filter(Boolean).join(" · ") || "No dates recorded"}
+                      {[p.birthDate && `b. ${formatVitalDate(p.birthDate)}${p.birthPlace ? `, ${p.birthPlace}` : ""}`, p.deathDate && `d. ${formatVitalDate(p.deathDate)}`].filter(Boolean).join(" · ") || "No dates recorded"}
                     </div>
                   </div>
                   <span className="hidden text-sm tabular-nums text-stone-500 sm:block">{lifespan(p)}</span>

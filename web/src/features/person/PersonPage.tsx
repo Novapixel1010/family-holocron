@@ -12,7 +12,8 @@ import { Badge, Tabs } from "@/components/ui/Page";
 import { InlineError, QueryBoundary } from "@/components/ui/States";
 import { useToast } from "@/components/ui/Toast";
 import { usePluginSlots } from "@/plugins/usePluginSlots";
-import { formatGenDate, lifespan, personName, SEX_LABEL } from "@/lib/format";
+import { formatVitalDate } from "@/lib/dates";
+import { lifespan, personName, SEX_LABEL } from "@/lib/format";
 
 export function PersonPage() {
   const params = useParams();
@@ -40,8 +41,8 @@ function Profile({ person: p, tab }: { person: NonNullable<ReturnType<typeof use
   const name = personName(p);
 
   const vitals = [
-    (p.birthDate || p.birthPlace) && `Born ${[formatGenDate(p.birthDate), p.birthPlace && `in ${p.birthPlace}`].filter(Boolean).join(" ")}`,
-    (p.deathDate || p.deathPlace) && `Died ${[formatGenDate(p.deathDate), p.deathPlace && `in ${p.deathPlace}`].filter(Boolean).join(" ")}`,
+    (p.birthDate || p.birthPlace) && `Born ${[formatVitalDate(p.birthDate), p.birthPlace && `in ${p.birthPlace}`].filter(Boolean).join(" ")}`,
+    (p.deathDate || p.deathPlace) && `Died ${[formatVitalDate(p.deathDate), p.deathPlace && `in ${p.deathPlace}`].filter(Boolean).join(" ")}`,
   ].filter(Boolean);
 
   return (

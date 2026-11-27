@@ -93,6 +93,18 @@ Birth and death live on `person` (they are 1:1 vital facts and drive the tree
 display); the timeline merges them in as synthetic `birth`/`death` items, so
 the user sees a single chronological stream.
 
+**Date standard.** Birth and death dates are ISO `YYYY-MM-DD`, or `YYYY-MM` / `YYYY`
+when the day or month is unknown. `POST`/`PUT /persons` normalize padding
+(`1890-3-5` → `1890-03-05`) and reject anything else, impossible calendar dates,
+future dates, and a death before the birth (compared at the precision both share,
+so `1890-06` vs `1890` is fine). Values that predate the standard (e.g. `ABT 1850`
+from a GEDCOM import) stay accepted while they are left unchanged, so such records
+remain editable; the UI shows them gracefully (`c. 1850`, `12 MAR 1850` → `1850-03-12`)
+and offers to replace them. The web form uses `DateField`: typeable, clearable, with a
+calendar popover (portaled above modals, flips/clamps to stay on screen, keyboard
+operable). Other dates (events, relationships, media) keep the flexible genealogical
+format.
+
 ---
 
 ## 3. HTTP API (`/api/v1`, JSON, camelCase)

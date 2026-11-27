@@ -695,3 +695,75 @@ func TestTreeGraphIncludesEveryRelative(t *testing.T) {
 		t.Fatalf("descendant links missing: %+v", g.Links)
 	}
 }
+
+func TestVitalDatesUseISO(t *testing.T) {
+	e := newEnv(t)
+	admin := setupAdmin(t, e)
+	type fieldsErr struct {
+		Error struct {
+			Code   string            `json:"code"`
+			Fields map[string]string `json:"fields"`
+		} `json:"error"`
+	}
+	create := func(birth, death string) (int, fieldsErr, person) {
+		var fe fieldsErr
+		var p person
+		var raw json.RawMessage
+		code := admin.do("POST", "/api/v1/persons", map[string]any{"givenName": "D", "birthDate": birth, "deathDate": death}, &raw)
+		json.Unmarshal(raw, &fe)
+		json.Unmarshal(raw, &p)
+		return code, fe, p
+	}
+	var got struct{ BirthDate, DeathDate string }
+	// Normalized padding, and partial dates are fine.
+	code, _, p := create("1890-3-5", "1960")
+	if code != 201 {
+		t.Fatalf("valid dates rejected: %d", code)
+	}
+	admin.must("GET", fmt.Sprintf("/api/v1/persons/%d", p.ID), nil, &got, 200)
+	if got.BirthDate != "1890-03-05" || got.DeathDate != "1960" {
+		t.Fatalf("normalization: %+v", got)
+	}
+	for _, c := range []struct{ birth, death, field string }{
+		{"12 MAR 1850", "", "birthDate"},          // not ISO
+		{"ABT 1850", "", "birthDate"},             // qualifiers aren't part of the standard
+		{"1900-02-29", "", "birthDate"},           // not a leap year
+		{"1890-13-01", "", "birthDate"},           // no month 13
+		{"1890-03-12", "1890-03-11", "deathDate"}, // death before birth
+		{"1890", "1889-12", "deathDate"},          // …at the shared precision
+		{"9999-01-01", "", "birthDate"},           // future
+	} {
+		code, fe, _ := create(c.birth, c.death)
+		if code != 422 || fe.Error.Fields[c.field] == "" {
+			t.Errorf("birth=%q death=%q: want 422 on %s, got %d %+v", c.birth, c.death, c.field, code, fe.Error.Fields)
+		}
+	}
+	if code, _, _ := create("1890-06", "1890"); code != 201 { // same year at shared precision is allowed
+		t.Fatalf("same-year partial dates: %d", code)
+	}
+
+	// A legacy (pre-standard) value from a GEDCOM import stays editable.
+	ged := "0 HEAD\n0 @I1@ INDI\n1 NAME Old /Record/\n1 BIRT\n2 DATE ABT 1850\n0 TRLR\n"
+	if code := admin.upload("/api/v1/gedcom/import", "file", "old.ged", []byte(ged), nil, nil); code != 200 {
+		t.Fatalf("import: %d", code)
+	}
+	var list struct {
+		Items []struct {
+			ID        int64
+			BirthDate string
+		}
+	}
+	admin.must("GET", "/api/v1/persons?q=Record", nil, &list, 200)
+	old := list.Items[0]
+	if old.BirthDate != "ABT 1850" {
+		t.Fatalf("import kept legacy value: %+v", old)
+	}
+	path := fmt.Sprintf("/api/v1/persons/%d", old.ID)
+	admin.must("PUT", path, map[string]any{"givenName": "Old", "surname": "Record", "birthDate": "ABT 1850", "about": "edited bio"}, nil, 200)
+	admin.must("PUT", path, map[string]any{"givenName": "Old", "surname": "Record", "birthDate": "ABT 1851"}, nil, 422)
+	admin.must("PUT", path, map[string]any{"givenName": "Old", "surname": "Record", "birthDate": "1850"}, nil, 200)
+	admin.must("GET", path, nil, &got, 200)
+	if got.BirthDate != "1850" {
+		t.Fatalf("converted legacy date: %+v", got)
+	}
+}

@@ -4,6 +4,7 @@ import { ApiError } from "@/api/client";
 import { useCreatePerson, useCreateRelationship, useDeleteRelationship, useFamily, useUpdateRelationship } from "@/api/hooks";
 import type { Person, Relationship, RelationshipInput, Relative } from "@/api/types";
 import { Attribution } from "@/components/ui/Attribution";
+import { DateField } from "@/components/ui/DateField";
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { Select, TextArea, TextInput } from "@/components/ui/Field";
@@ -12,6 +13,7 @@ import { PersonPicker } from "@/components/ui/PersonPicker";
 import { EmptyState, InlineError, QueryBoundary } from "@/components/ui/States";
 import { useToast } from "@/components/ui/Toast";
 import { dateHint } from "@/features/people/PersonForm";
+import { checkVitals } from "@/lib/dates";
 import { lifespan, personName, titleCase } from "@/lib/format";
 import type { PersonTabProps } from "@/plugins/registry";
 
@@ -89,6 +91,7 @@ function AddRelativeModal({ person, kind, onClose }: { person: Person; kind: Kin
   const [np, setNp] = useState({ givenName: "", surname: kind === "child" || kind === "parent" ? person.surname : "", sex: "U" as Person["sex"], birthDate: "" });
   const [subtype, setSubtype] = useState(kind === "spouse" ? "married" : "biological");
   const [startDate, setStartDate] = useState("");
+  const [birthTouched, setBirthTouched] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const createPerson = useCreatePerson();
@@ -101,11 +104,16 @@ function AddRelativeModal({ person, kind, onClose }: { person: Person; kind: Kin
     e.preventDefault();
     setError(null);
     setBusy(true);
+    if (mode === "new" && checkVitals(np.birthDate, "").birthError) {
+      setBirthTouched(true);
+      setBusy(false);
+      return;
+    }
     try {
       let target = other;
       if (mode === "new") {
         target = await createPerson.mutateAsync({
-          givenName: np.givenName, surname: np.surname, nickname: "", sex: np.sex, birthDate: np.birthDate, birthPlace: "",
+          givenName: np.givenName, surname: np.surname, nickname: "", sex: np.sex, birthDate: checkVitals(np.birthDate, "").birth ?? "", birthPlace: "",
           deathDate: "", deathPlace: "", deceased: false, about: "", portraitMediaId: null,
         });
         // If linking fails below, a retry must not create the person twice.
@@ -149,7 +157,8 @@ function AddRelativeModal({ person, kind, onClose }: { person: Person; kind: Kin
             <TextInput label="Surname" value={np.surname} onChange={(e) => setNp({ ...np, surname: e.target.value })} />
             <Select label="Sex" value={np.sex} onChange={(e) => setNp({ ...np, sex: e.target.value as Person["sex"] })}
               options={[{ value: "U", label: "Unknown" }, { value: "F", label: "Female" }, { value: "M", label: "Male" }, { value: "X", label: "Other" }]} />
-            <TextInput label="Birth date" value={np.birthDate} onChange={(e) => setNp({ ...np, birthDate: e.target.value })} hint={dateHint(np.birthDate)} />
+            <DateField label="Birth date" value={np.birthDate} onChange={(v) => setNp({ ...np, birthDate: v })} onBlur={() => setBirthTouched(true)}
+              error={(birthTouched && checkVitals(np.birthDate, "").birthError) || fields.birthDate} />
           </div>
         )}
         <Select label="Relationship" value={subtype} onChange={(e) => setSubtype(e.target.value)}
