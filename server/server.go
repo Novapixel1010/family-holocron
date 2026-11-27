@@ -16,6 +16,7 @@ import (
 	"github.com/novapixel1010/family-holocron/server/module/audit"
 	"github.com/novapixel1010/family-holocron/server/module/auth"
 	"github.com/novapixel1010/family-holocron/server/module/backup"
+	"github.com/novapixel1010/family-holocron/server/module/biotemplate"
 	"github.com/novapixel1010/family-holocron/server/module/exchange"
 	"github.com/novapixel1010/family-holocron/server/module/media"
 	"github.com/novapixel1010/family-holocron/server/module/person"
@@ -48,6 +49,9 @@ func New(ctx context.Context, o Options) (*Server, error) {
 	if err := o.Plugins.Init(ctx, plugin.Host{Store: o.Store, Logger: o.Logger}); err != nil {
 		return nil, err
 	}
+	if err := o.Store.SeedBioTemplates(ctx); err != nil {
+		return nil, err
+	}
 	mux := http.NewServeMux()
 	rt := &apiutil.Router{Mux: mux, Logger: o.Logger}
 	p := o.Profile
@@ -59,6 +63,10 @@ func New(ctx context.Context, o Options) (*Server, error) {
 		OnRestored: func(ctx context.Context) {
 			if err := o.Plugins.Reload(ctx); err != nil {
 				o.Logger.Error("reload plugins after restore", "err", err)
+			}
+			// A backup from before templates existed restores an empty, never-seeded table.
+			if err := o.Store.SeedBioTemplates(ctx); err != nil {
+				o.Logger.Error("seed bio templates after restore", "err", err)
 			}
 		},
 	}
@@ -72,6 +80,7 @@ func New(ctx context.Context, o Options) (*Server, error) {
 		&backup.Module{Service: backupSvc, MaxUploadBytes: max(p.MaxUploadBytes, 4<<30)},
 		&exchange.Module{Store: o.Store, MaxUploadBytes: p.MaxUploadBytes},
 		&audit.Module{Store: o.Store},
+		&biotemplate.Module{Store: o.Store},
 	}
 	for _, m := range modules {
 		m.Register(rt)

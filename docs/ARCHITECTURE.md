@@ -84,6 +84,7 @@ Every mutation writes an `audit_log` row **in the same transaction**.
 | `media` | `uid`, `storage_path`, `original_name`, `mime_type`, `size_bytes`, `sha256`, `title`, `description`, `taken_date`, attribution |
 | `media_person` | `(media_id, person_id)` tags |
 | `audit_log` | `user_id`, `username` snapshot, `action` (create/update/delete/import/restore/backup…), `entity_type`, `entity_id`, `entity_label`, `person_id` (for per-person history), `changes` (JSON field diff) |
+| `bio_templates` | admin-managed Markdown templates for the About section: `name` (unique, nocase), `description`, `content_md`, `sort_order`, attribution. A starter "Standard Biography" is seeded once per database (marker `bio_templates.seeded`), so deleting every template sticks across restarts |
 | `system_setting` | key/value instance settings (e.g. `plugin.<id>.enabled`) |
 | `plugin_kv` | `(plugin_id, key) → value` scratch storage for plugins |
 | `plugin_migration` | per-plugin applied migration versions (plugins own their tables, prefixed `plg_<id>_`) |
@@ -131,6 +132,7 @@ Access levels: **public**, **viewer** (any signed-in user), **editor**, **admin*
 | `GET /api/v1/tree/{id}` | viewer | `?generations=1..12&direction=ancestors\|descendants`; returns a de-duplicated `people` + `links` graph (incl. couples, co-parents and partners) and a nested `root` |
 | `GET/POST /api/v1/media` · `GET/PUT/DELETE /media/{id}` · `GET /media/{id}/file` | viewer/editor | multipart upload |
 | `GET /api/v1/audit` | viewer | `?entityType=&entityId=&personId=&userId=&before=&limit=` |
+| `GET /api/v1/bio-templates` · `POST /bio-templates` · `PUT/DELETE /bio-templates/{id}` | viewer / admin | biography templates (ordered by `sort_order`, `name`); the About editor's "Insert template" menu appends or replaces only on the user's explicit choice |
 | `GET /api/v1/stats` | viewer | dashboard counts |
 | `GET /api/v1/backups` · `POST /backups` · `GET /backups/download` | admin | list stored / create stored / stream a fresh archive |
 | `GET /backups/{name}/download` · `DELETE /backups/{name}` | admin | |

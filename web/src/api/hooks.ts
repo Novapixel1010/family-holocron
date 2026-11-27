@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { api, qs } from "./client";
 import type {
-  AuditPage, BackupInfo, EventInput, Family, HolocronEvent, ImportResult, Media, MediaInput, Note, Page, Person,
+  AuditPage, BackupInfo, BioTemplate, BioTemplateInput, EventInput, Family, HolocronEvent, ImportResult, Media, MediaInput, Note, Page, Person,
   PersonInput, PluginInfo, Relationship, RelationshipInput, RestoreResult, Stats, Status, TimelineResponse,
   TreeDirection, TreeResponse, User,
 } from "./types";
@@ -237,3 +237,24 @@ export const useImportGedcom = () =>
     fd.append("file", file);
     return api.upload<ImportResult>("/api/v1/gedcom/import", fd);
   });
+
+// ---- biography templates -------------------------------------------------------
+
+export const useBioTemplates = () =>
+  useQuery({ queryKey: ["bio-templates"], queryFn: () => api.get<BioTemplate[]>("/api/v1/bio-templates"), staleTime: 60_000 });
+
+export function useBioTemplateMutations() {
+  const qc = useQueryClient();
+  const done = () => {
+    qc.invalidateQueries({ queryKey: ["bio-templates"] });
+    qc.invalidateQueries({ queryKey: ["audit"] });
+  };
+  return {
+    create: useMutation({ mutationFn: (in_: BioTemplateInput) => api.post<BioTemplate>("/api/v1/bio-templates", in_), onSuccess: done }),
+    update: useMutation({
+      mutationFn: ({ id, input }: { id: number; input: BioTemplateInput }) => api.put<BioTemplate>(`/api/v1/bio-templates/${id}`, input),
+      onSuccess: done,
+    }),
+    remove: useMutation({ mutationFn: (id: number) => api.del(`/api/v1/bio-templates/${id}`), onSuccess: done }),
+  };
+}
