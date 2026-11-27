@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { ApiError } from "@/api/client";
@@ -15,11 +15,18 @@ import { HomePage } from "@/features/home/HomePage";
 import { PeoplePage } from "@/features/people/PeoplePage";
 import { NewPersonPage, EditPersonPage } from "@/features/people/PersonFormPage";
 import { PersonPage } from "@/features/person/PersonPage";
-import { TreePage } from "@/features/tree/TreePage";
 import { TimelinePage } from "@/features/timeline/TimelinePage";
 import { MediaPage } from "@/features/media/MediaPage";
 import { SettingsPage } from "@/features/settings/SettingsPage";
 import { NotFoundPage } from "./NotFoundPage";
+
+// The tree pulls in React Flow + Dagre; load it only when the tree route is opened.
+const TreePage = lazy(() => import("@/features/tree/TreePage").then((m) => ({ default: m.TreePage })));
+const treeElement = (
+  <Suspense fallback={<LoadingState label="Loading the tree view…" className="h-full" />}>
+    <TreePage />
+  </Suspense>
+);
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -92,8 +99,8 @@ function Gate() {
           <Route path="people/:id" element={<PersonPage />} />
           <Route path="people/:id/:tab" element={<PersonPage />} />
           <Route path="people/:id/edit" element={<EditPersonPage />} />
-          <Route path="tree" element={<TreePage />} />
-          <Route path="tree/:id" element={<TreePage />} />
+          <Route path="tree" element={treeElement} />
+          <Route path="tree/:id" element={treeElement} />
           <Route path="timeline" element={<TimelinePage />} />
           <Route path="media" element={<MediaPage />} />
           <Route path="settings" element={<SettingsPage />} />

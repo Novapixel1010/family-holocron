@@ -563,3 +563,135 @@ func TestPluginsAndFrontendFallback(t *testing.T) {
 		t.Fatalf("healthz: %d", code)
 	}
 }
+
+// TestTreeGraphIncludesEveryRelative covers the flat graph used by the tree view:
+// shared ancestors appear once, couples are linked, and co-parents/spouses are
+// included in descendant views even without a spouse record.
+func TestTreeGraphIncludesEveryRelative(t *testing.T) {
+	e := newEnv(t)
+	admin := setupAdmin(t, e)
+	mk := func(given, sex string) int64 {
+		var p person
+		admin.must("POST", "/api/v1/persons", map[string]any{"givenName": given, "surname": "Graph", "sex": sex, "about": map[bool]string{true: "story"}[given == "Kid"]}, &p, 201)
+		return p.ID
+	}
+	link := func(typ string, a, b int64) {
+		admin.must("POST", "/api/v1/relationships", map[string]any{"type": typ, "person1Id": a, "person2Id": b}, nil, 201)
+	}
+	// Two cousins (Dad, Mom) who share grandparents GP1+GP2 → pedigree collapse for Kid.
+	gp1, gp2 := mk("GP1", "M"), mk("GP2", "F")
+	auntA, uncleB := mk("AuntA", "F"), mk("UncleB", "M")
+	dad, mom, kid := mk("Dad", "M"), mk("Mom", "F"), mk("Kid", "U")
+	link("parent", gp1, auntA)
+	link("parent", gp2, auntA)
+	link("parent", gp1, uncleB)
+	link("parent", gp2, uncleB)
+	link("parent", auntA, dad)
+	link("parent", uncleB, mom)
+	link("parent", dad, kid)
+	link("parent", mom, kid)
+	link("spouse", dad, mom)
+	link("spouse", gp1, gp2)
+	// Kid has a child with a partner who has no spouse record, and a childless spouse.
+	partner, spouse2, grandkid := mk("Partner", "F"), mk("Spouse2", "M"), mk("Grandkid", "U")
+	link("parent", kid, grandkid)
+	link("parent", partner, grandkid)
+	link("spouse", kid, spouse2)
+
+	type graph struct {
+		Count  int `json:"count"`
+		People []struct {
+			ID         int64  `json:"id"`
+			Name       string `json:"name"`
+			Role       string `json:"role"`
+			Generation int    `json:"generation"`
+			HasMore    bool   `json:"hasMore"`
+			HasAbout   bool   `json:"hasAbout"`
+		} `json:"people"`
+		Links []struct {
+			ID             int64  `json:"id"`
+			Type           string `json:"type"`
+			Source, Target int64
+		} `json:"links"`
+	}
+	var g graph
+	admin.must("GET", fmt.Sprintf("/api/v1/tree/%d?generations=4", kid), nil, &g, 200)
+	seen := map[int64]int{}
+	for _, p := range g.People {
+		seen[p.ID]++
+	}
+	for _, id := range []int64{kid, dad, mom, auntA, uncleB, gp1, gp2} {
+		if seen[id] != 1 {
+			t.Fatalf("ancestor %d appears %d times in graph: %+v", id, seen[id], g.People)
+		}
+	}
+	if len(g.People) != 7 || g.Count != 9 {
+		t.Fatalf("want 7 unique people (nested count 9 with duplicates), got %d / %d", len(g.People), g.Count)
+	}
+	// 8 parent links among them + Dad&Mom + GP1&GP2 couples.
+	spouseLinks, parentLinks := 0, 0
+	ids := map[int64]bool{}
+	for _, l := range g.Links {
+		if ids[l.ID] {
+			t.Fatalf("duplicate link id %d", l.ID)
+		}
+		ids[l.ID] = true
+		if l.Type == "spouse" {
+			spouseLinks++
+		} else {
+			parentLinks++
+		}
+	}
+	if parentLinks != 8 || spouseLinks != 2 {
+		t.Fatalf("links: %d parent, %d spouse: %+v", parentLinks, spouseLinks, g.Links)
+	}
+	for _, p := range g.People {
+		if p.ID == kid && (!p.HasAbout || p.Role != "root") {
+			t.Fatalf("root flags: %+v", p)
+		}
+	}
+
+	// Depth limit: grandparents sit beyond generation 1, so their children are flagged.
+	admin.must("GET", fmt.Sprintf("/api/v1/tree/%d?generations=1", kid), nil, &g, 200)
+	if len(g.People) != 3 {
+		t.Fatalf("1 generation: %+v", g.People)
+	}
+	for _, p := range g.People {
+		if (p.ID == dad || p.ID == mom) != p.HasMore {
+			t.Fatalf("hasMore for %s = %v", p.Name, p.HasMore)
+		}
+	}
+
+	// Descendants of Dad: Kid, Grandkid, plus partners Mom (co-parent), Partner (co-parent, no spouse
+	// record) and Spouse2 (childless spouse).
+	admin.must("GET", fmt.Sprintf("/api/v1/tree/%d?direction=descendants&generations=3", dad), nil, &g, 200)
+	roles := map[int64]string{}
+	gens := map[int64]int{}
+	for _, p := range g.People {
+		roles[p.ID] = p.Role
+		gens[p.ID] = p.Generation
+	}
+	want := map[int64]string{dad: "root", kid: "descendant", grandkid: "descendant", mom: "partner", partner: "partner", spouse2: "partner"}
+	if len(roles) != len(want) {
+		t.Fatalf("descendant graph people: %+v", g.People)
+	}
+	for id, r := range want {
+		if roles[id] != r {
+			t.Fatalf("role of %d = %q, want %q (%+v)", id, roles[id], r, g.People)
+		}
+	}
+	if gens[partner] != 1 || gens[spouse2] != 1 || gens[mom] != 0 || gens[grandkid] != 2 {
+		t.Fatalf("partner generations: %+v", gens)
+	}
+	hasLink := func(typ string, a, b int64) bool {
+		for _, l := range g.Links {
+			if l.Type == typ && l.Source == a && l.Target == b {
+				return true
+			}
+		}
+		return false
+	}
+	if !hasLink("parent", partner, grandkid) || !hasLink("parent", mom, kid) || !hasLink("spouse", min(kid, spouse2), max(kid, spouse2)) {
+		t.Fatalf("descendant links missing: %+v", g.Links)
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"context"
 	"net/http"
 	"slices"
+	"strings"
 
 	"github.com/novapixel1010/family-holocron/internal/gendate"
 	"github.com/novapixel1010/family-holocron/server/apiutil"
@@ -32,12 +33,14 @@ type Summary struct {
 	DeathYear       int    `json:"deathYear"`
 	Living          bool   `json:"living"`
 	PortraitMediaID *int64 `json:"portraitMediaId"`
+	HasAbout        bool   `json:"hasAbout"`
 }
 
 func summarize(p *store.Person) *Summary {
 	return &Summary{ID: p.ID, Name: p.DisplayName(), GivenName: p.GivenName, Surname: p.Surname, Sex: p.Sex,
 		BirthDate: p.BirthDate, DeathDate: p.DeathDate, BirthYear: gendate.Parse(p.BirthDate).Year,
-		DeathYear: gendate.Parse(p.DeathDate).Year, Living: p.IsLiving(), PortraitMediaID: p.PortraitMediaID}
+		DeathYear: gendate.Parse(p.DeathDate).Year, Living: p.IsLiving(), PortraitMediaID: p.PortraitMediaID,
+		HasAbout: strings.TrimSpace(p.About) != ""}
 }
 
 // Node is one person in the tree. For ancestor trees Children holds the person's
@@ -52,11 +55,17 @@ type Node struct {
 }
 
 // Response is the tree payload.
+//
+// Root is a nested view (shared ancestors repeat). People and Links are the
+// same data as a flat, de-duplicated graph that also carries partner and
+// co-parent links; graph renderers should use those.
 type Response struct {
-	Direction   string `json:"direction"`
-	Generations int    `json:"generations"`
-	Root        *Node  `json:"root"`
-	Count       int    `json:"count"`
+	Direction   string        `json:"direction"`
+	Generations int           `json:"generations"`
+	Root        *Node         `json:"root"`
+	Count       int           `json:"count"`
+	People      []GraphPerson `json:"people"`
+	Links       []GraphLink   `json:"links"`
 }
 
 func (m *Module) get(w http.ResponseWriter, r *http.Request) error {
@@ -91,6 +100,7 @@ func (m *Module) Build(ctx context.Context, rootID int64, dir string, gens int) 
 	people := map[int64]*store.Person{rootID: root}
 	// links[id] = relationships from id to the next generation.
 	links := map[int64][]*store.Relationship{}
+	depth := map[int64]int{rootID: 0}
 	frontier := []int64{rootID}
 	for g := 0; g <= gens && len(frontier) > 0; g++ {
 		var rels []*store.Relationship
@@ -112,6 +122,7 @@ func (m *Module) Build(ctx context.Context, rootID int64, dir string, gens int) 
 			if _, seen := people[to]; !seen && g < gens {
 				next = append(next, to)
 				people[to] = nil
+				depth[to] = g + 1
 			}
 		}
 		if g == gens {
@@ -189,7 +200,11 @@ func (m *Module) Build(ctx context.Context, rootID int64, dir string, gens int) 
 		return n
 	}
 	tree := build(rootID, 0, map[int64]bool{}, "")
-	return &Response{Direction: dir, Generations: gens, Root: tree, Count: count}, nil
+	graphPeople, graphLinks, err := m.buildGraph(ctx, rootID, dir, people, depth, links)
+	if err != nil {
+		return nil, err
+	}
+	return &Response{Direction: dir, Generations: gens, Root: tree, Count: count, People: graphPeople, Links: graphLinks}, nil
 }
 
 // rank orders parents father-first and children by birth.

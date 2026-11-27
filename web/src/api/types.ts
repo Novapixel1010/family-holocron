@@ -162,6 +162,25 @@ export interface TreeSummary {
   deathYear: number;
   living: boolean;
   portraitMediaId: number | null;
+  hasAbout: boolean;
+}
+
+export type GraphRole = "root" | "ancestor" | "descendant" | "partner";
+
+/** A unique person in the flat tree graph. */
+export interface GraphPerson extends TreeSummary {
+  generation: number;
+  role: GraphRole;
+  hasMore: boolean;
+}
+
+/** A relationship between two people in the tree graph (id = relationship id). */
+export interface GraphLink {
+  id: number;
+  type: RelationshipType;
+  source: number; // parent, or first partner
+  target: number; // child, or second partner
+  subtype: string;
 }
 
 export interface TreeNode {
@@ -179,6 +198,8 @@ export interface TreeResponse {
   generations: number;
   root: TreeNode;
   count: number;
+  people: GraphPerson[];
+  links: GraphLink[];
 }
 
 export interface FieldChange {

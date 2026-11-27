@@ -1,0 +1,20 @@
+/* Theme React Flow with the app palette (scoped to the tree canvas only). */
+.react-flow.holocron-flow {
+  --xy-background-color: #fafaf9;          /* stone-50 */
+  --xy-background-pattern-color: #d6d3d1;  /* stone-300 */
+  --xy-edge-stroke: #a8a29e;               /* stone-400 */
+  --xy-attribution-background-color: rgba(255, 255, 255, 0.6);
+}
+@media (prefers-color-scheme: dark) {
+  .react-flow.holocron-flow {
+    --xy-background-color: #0c0a09;          /* stone-950 */
+    --xy-background-pattern-color: #292524;  /* stone-800 */
+    --xy-edge-stroke: #57534e;               /* stone-600 */
+    --xy-attribution-background-color: rgba(12, 10, 9, 0.6);
+  }
+}
+.holocron-flow .react-flow__node-person,
+.holocron-flow .react-flow__node-union { cursor: default; }
+.holocron-flow .react-flow__edge-path { stroke-width: 2; }
+.holocron-flow .holocron-edge-dashed .react-flow__edge-path { stroke-dasharray: 6 5; }
+.holocron-flow .holocron-edge-ended .react-flow__edge-path { stroke-dasharray: 2 5; }

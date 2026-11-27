@@ -50,7 +50,7 @@ family-holocron/
 │       ├── features/        # auth, people, person, tree, timeline, media, settings, home
 │       └── plugins/         # web plugin registry + slots, core + stats plugins
 ├── Dockerfile               # node → go (CGO_ENABLED=0) → alpine runtime
-├── docker-compose.yml
+├── compose.yaml             # docker compose up -d
 └── .env.example
 ```
 
@@ -109,7 +109,7 @@ Access levels: **public**, **viewer** (any signed-in user), **editor**, **admin*
 | `GET/POST /api/v1/persons/{id}/notes` · `PUT/DELETE /notes/{id}` | viewer/editor | |
 | `GET/POST /api/v1/events` · `GET/PUT/DELETE /events/{id}` | viewer/editor | participants inline |
 | `GET /api/v1/timeline` | viewer | `?personId=&types=&q=&from=&to=` |
-| `GET /api/v1/tree/{id}` | viewer | `?generations=1..10&direction=ancestors\|descendants` |
+| `GET /api/v1/tree/{id}` | viewer | `?generations=1..12&direction=ancestors\|descendants`; returns a de-duplicated `people` + `links` graph (incl. couples, co-parents and partners) and a nested `root` |
 | `GET/POST /api/v1/media` · `GET/PUT/DELETE /media/{id}` · `GET /media/{id}/file` | viewer/editor | multipart upload |
 | `GET /api/v1/audit` | viewer | `?entityType=&entityId=&personId=&userId=&before=&limit=` |
 | `GET /api/v1/stats` | viewer | dashboard counts |
@@ -147,11 +147,27 @@ directory contents → invalidate other sessions → audit `restore` entry.
 | `/setup`, `/login` | first-admin setup, sign-in |
 | `/` | dashboard: counts, recent activity, quick actions |
 | `/people`, `/people/new`, `/people/:id`, `/people/:id/edit` | directory and profile |
-| `/tree`, `/tree/:id` | interactive ancestor/descendant tree (pan/zoom, expand/collapse, focus) |
+| `/tree`, `/tree/:id` | interactive ancestor/descendant tree (pan/zoom, expand/collapse, focus), rendered with React Flow and laid out with Dagre — see below |
 | `/timeline` | chronological timeline with person/type/text filters |
 | `/media` | media library |
 | `/settings/:section` | account, users, backup & restore, import/export, activity, plugins |
 | `/x/:pluginId/*` | plugin-contributed pages |
+
+Tree view pipeline (`web/src/features/tree/graph.ts`, unit-tested):
+
+1. The API's flat graph is merged with any "load more" sub-graphs (by person id and
+   relationship id, so nothing is duplicated or overwritten).
+2. `visibleGraph` walks from the root, skipping collapsed people; a shared ancestor
+   stays visible while any other path reaches it.
+3. `familyUnits` turns parent sets and couples into small junction nodes
+   (parents → junction → children). Dagre cannot pin partners to the same rank, so
+   the shared junction is what keeps couples side by side. Children with mixed
+   birth/adoptive parents get separate edges so each keeps its style.
+4. Dagre lays out fixed-size cards (`rankdir` `BT` for ancestors, `TB` for
+   descendants); centre-anchored positions are shifted to React Flow's top-left anchor.
+5. React Flow renders `PersonNode` / `UnionNode` (module-level `nodeTypes`) and fits
+   the view whenever the root, direction or depth changes. The route is lazy-loaded,
+   so React Flow and Dagre are only downloaded for the tree page.
 
 UI extension slots (`web/src/plugins/registry.ts`):
 

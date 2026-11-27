@@ -333,6 +333,15 @@ func (d *DB) ListRelationships(ctx context.Context, f store.FindRelationship) ([
 		where = append(where, "(r.person1_id = ? OR r.person2_id = ?)")
 		args = append(args, *f.PersonID, *f.PersonID)
 	}
+	if f.PersonIDs != nil {
+		if len(f.PersonIDs) == 0 {
+			return []*store.Relationship{}, nil
+		}
+		ph, a := inClause(f.PersonIDs)
+		where = append(where, "(r.person1_id IN ("+ph+") OR r.person2_id IN ("+ph+"))")
+		args = append(args, a...)
+		args = append(args, a...)
+	}
 	if f.Type != "" {
 		where = append(where, "r.type = ?")
 		args = append(args, f.Type)
