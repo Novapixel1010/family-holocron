@@ -17,6 +17,7 @@ import (
 type repo struct{ db store.PluginDB }
 
 const taskSelect = `SELECT t.id, t.title, t.description_md, t.status, t.priority, t.claimed_at,
+	(SELECT COUNT(*) FROM plg_task_comments c WHERE c.task_id = t.id),
 	cl.id, cl.username, cl.display_name,
 	t.created_at, t.updated_at, cu.id, cu.username, cu.display_name, uu.id, uu.username, uu.display_name
 	FROM plg_task_task t
@@ -39,7 +40,7 @@ func scanTask(r scanner) (*Task, error) {
 	var clID, cuID, uuID sql.NullInt64
 	var clName, clDisp, cuName, cuDisp, uuName, uuDisp sql.NullString
 	var created, updated int64
-	err := r.Scan(&t.ID, &t.Title, &t.DescriptionMD, &t.Status, &t.Priority, &claimedAt,
+	err := r.Scan(&t.ID, &t.Title, &t.DescriptionMD, &t.Status, &t.Priority, &claimedAt, &t.CommentCount,
 		&clID, &clName, &clDisp, &created, &updated, &cuID, &cuName, &cuDisp, &uuID, &uuName, &uuDisp)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, store.ErrNotFound

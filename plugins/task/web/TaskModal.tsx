@@ -16,6 +16,7 @@ import { MediaThumb, UploadButton } from "@/features/media/MediaGrid";
 import { lifespan, relativeTime, userLabel } from "@/lib/format";
 import { toInput, useCreateTask, useDeleteTask, useTask, useTaskTags, useUpdateTask, type Task, type TaskInput } from "./api";
 import { ClaimControls } from "./ClaimControls";
+import { CommentsThread } from "./CommentsThread";
 import { addTags, PRIORITY, STATUS } from "./model";
 import { PriorityLabel, StatusBadge } from "./TaskRow";
 
@@ -56,6 +57,7 @@ function TaskView({ task, canEdit, onEdit, onClose }: { task: Task; canEdit: boo
         {task.descriptionMd.trim() ? <Markdown>{task.descriptionMd}</Markdown> : <p className="text-stone-500">No description.</p>}
         <LinkedLists task={task} onNavigate={onClose} />
         <Attribution value={task} />
+        <CommentsThread taskId={task.id} />
       </div>
     </Modal>
   );

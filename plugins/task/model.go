@@ -53,6 +53,7 @@ type Task struct {
 	ClaimedAt     *time.Time     `json:"claimedAt"`
 	People        []PersonRef    `json:"people"`
 	Media         []MediaRef     `json:"media"`
+	CommentCount  int            `json:"commentCount"`
 	store.Attribution
 }
 

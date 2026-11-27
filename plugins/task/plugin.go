@@ -38,7 +38,7 @@ func New() *Plugin { return &Plugin{} }
 // Manifest implements plugin.Plugin.
 func (p *Plugin) Manifest() plugin.Manifest {
 	return plugin.Manifest{
-		ID: ID, Name: "Research Tasks", Version: "1.0.0", DefaultEnabled: true,
+		ID: ID, Name: "Research Tasks", Version: "1.1.0", DefaultEnabled: true,
 		Description: "A shared research to-do list: claim tasks, link them to people and sources, and track progress.",
 		Slots: []plugin.Slot{
 			{Kind: plugin.SlotNav, ID: "tasks", Label: "Research tasks", Order: 40},
@@ -81,6 +81,11 @@ func (p *Plugin) Routes() []plugin.Route {
 		{Method: http.MethodDelete, Path: "/tasks/{id}", Access: apiutil.Editor, Handler: p.delete},
 		{Method: http.MethodPost, Path: "/tasks/{id}/claim", Access: apiutil.Editor, Handler: p.claim},
 		{Method: http.MethodPost, Path: "/tasks/{id}/unclaim", Access: apiutil.Editor, Handler: p.unclaim},
+		{Method: http.MethodPatch, Path: "/tasks/{id}/status", Access: apiutil.Editor, Handler: p.setStatus},
+		{Method: http.MethodGet, Path: "/tasks/{id}/comments", Access: apiutil.Viewer, Handler: p.listComments},
+		{Method: http.MethodPost, Path: "/tasks/{id}/comments", Access: apiutil.Editor, Handler: p.addComment},
+		{Method: http.MethodPatch, Path: "/tasks/{id}/comments/{commentId}", Access: apiutil.Editor, Handler: p.editComment},
+		{Method: http.MethodDelete, Path: "/tasks/{id}/comments/{commentId}", Access: apiutil.Editor, Handler: p.deleteComment},
 		{Method: http.MethodGet, Path: "/tags", Access: apiutil.Viewer, Handler: p.tags},
 	}
 }

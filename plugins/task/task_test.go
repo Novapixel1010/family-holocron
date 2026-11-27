@@ -3,6 +3,7 @@ package task_test
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,6 +13,7 @@ import (
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -146,8 +148,21 @@ type taskJSON struct {
 	Media []struct {
 		ID int64 `json:"id"`
 	} `json:"media"`
-	CreatedBy *struct{ Username string } `json:"createdBy"`
-	UpdatedBy *struct{ Username string } `json:"updatedBy"`
+	CommentCount int                        `json:"commentCount"`
+	UpdatedAt    string                     `json:"updatedAt"`
+	CreatedBy    *struct{ Username string } `json:"createdBy"`
+	UpdatedBy    *struct{ Username string } `json:"updatedBy"`
+}
+
+type commentJSON struct {
+	ID     int64  `json:"id"`
+	BodyMD string `json:"bodyMd"`
+	Edited bool   `json:"edited"`
+	Author *struct {
+		Username    string `json:"username"`
+		DisplayName string `json:"displayName"`
+	} `json:"author"`
+	CreatedAt string `json:"createdAt"`
 }
 
 type apiErr struct {
@@ -395,6 +410,7 @@ func TestBackupAndRestoreIncludeTasks(t *testing.T) {
 	ann.must("POST", base+"/tasks", map[string]any{"title": "Scan the family bible", "tags": []string{"sources"},
 		"personIds": []int64{walter}, "mediaIds": []int64{media.ID}}, &tk, 201)
 	ann.must("POST", fmt.Sprintf("%s/tasks/%d/claim", base, tk.ID), nil, nil, 200)
+	ann.must("POST", fmt.Sprintf("%s/tasks/%d/comments", base, tk.ID), map[string]string{"bodyMd": "Bible is at **Aunt June's**."}, nil, 201)
 
 	resp, err := admin.c.Get(e.ts.URL + "/api/v1/backups/download")
 	if err != nil || resp.StatusCode != 200 {
@@ -432,6 +448,11 @@ func TestBackupAndRestoreIncludeTasks(t *testing.T) {
 		len(got.People) != 1 || len(got.Media) != 1 || len(got.Tags) != 1 || got.CreatedBy.Username != "ann" {
 		t.Fatalf("restored task: %+v", got)
 	}
+	var comments []commentJSON
+	admin.must("GET", fmt.Sprintf("%s/tasks/%d/comments", base, got.ID), nil, &comments, 200)
+	if len(comments) != 1 || comments[0].Author == nil || comments[0].Author.Username != "ann" || comments[0].BodyMD != "Bible is at **Aunt June's**." {
+		t.Fatalf("restored comments: %+v", comments)
+	}
 	r, err := admin.c.Get(fmt.Sprintf("%s/api/v1/media/%d/file", e.ts.URL, got.Media[0].ID))
 	if err != nil {
 		t.Fatal(err)
@@ -441,4 +462,159 @@ func TestBackupAndRestoreIncludeTasks(t *testing.T) {
 	if r.StatusCode != 200 || !bytes.Equal(body, png) {
 		t.Fatalf("restored task media file: %d", r.StatusCode)
 	}
+}
+
+func TestQuickStatusRequiresClaim(t *testing.T) {
+	e := start(t, t.TempDir())
+	_, ann, bob, viewer, _ := setup(t, e)
+	var tk taskJSON
+	ann.must("POST", base+"/tasks", map[string]any{"title": "Visit the county archive"}, &tk, 201)
+	path := fmt.Sprintf("%s/tasks/%d/status", base, tk.ID)
+
+	var e1 apiErr
+	if code, _ := ann.do("PATCH", path, map[string]string{"status": "in_progress"}, &e1); code != 409 || e1.Error.Code != "not_claimed" {
+		t.Fatalf("unclaimed status change: %d %+v", code, e1)
+	}
+	ann.must("POST", fmt.Sprintf("%s/tasks/%d/claim", base, tk.ID), nil, nil, 200)
+
+	// Any editor can move a claimed task between the quick statuses; attribution follows.
+	var got taskJSON
+	bob.must("PATCH", path, map[string]string{"status": "blocked"}, &got, 200)
+	if got.Status != "blocked" || got.UpdatedBy.Username != "bob" || got.ClaimedBy.Username != "ann" {
+		t.Fatalf("blocked: %+v", got)
+	}
+	ann.must("PATCH", path, map[string]string{"status": "done"}, &got, 200)
+	if got.Status != "done" || got.UpdatedBy.Username != "ann" || got.ClaimedBy == nil {
+		t.Fatalf("done keeps the claim as a record of who did it: %+v", got)
+	}
+	ann.must("PATCH", path, map[string]string{"status": "in_progress"}, &got, 200)
+
+	// "open" is not a quick status (reopening = releasing the claim); unknown values fail.
+	for _, st := range []string{"open", "nope", ""} {
+		if code, _ := ann.do("PATCH", path, map[string]string{"status": st}, nil); code != 422 {
+			t.Fatalf("status %q: want 422, got %d", st, code)
+		}
+	}
+	viewer.must("PATCH", path, map[string]string{"status": "blocked"}, nil, 403)
+	ann.must("PATCH", fmt.Sprintf("%s/tasks/999/status", base), map[string]string{"status": "blocked"}, nil, 404)
+
+	// After release the task is unclaimed again, so quick changes are refused.
+	ann.must("POST", fmt.Sprintf("%s/tasks/%d/unclaim", base, tk.ID), nil, nil, 200)
+	ann.must("PATCH", path, map[string]string{"status": "blocked"}, nil, 409)
+
+	// Changes are audited.
+	var hist struct {
+		Items []struct{ EntityType, Username string }
+	}
+	ann.must("GET", fmt.Sprintf("/api/v1/audit?entityType=task&entityId=%d", tk.ID), nil, &hist, 200)
+	if len(hist.Items) < 5 {
+		t.Fatalf("status changes should be audited: %+v", hist.Items)
+	}
+}
+
+func TestComments(t *testing.T) {
+	e := start(t, t.TempDir())
+	admin, ann, bob, viewer, walter := setup(t, e)
+	var tk taskJSON
+	ann.must("POST", base+"/tasks", map[string]any{"title": "Trace the Hale farm", "personIds": []int64{walter}}, &tk, 201)
+	path := fmt.Sprintf("%s/tasks/%d/comments", base, tk.ID)
+
+	var list []commentJSON
+	viewer.must("GET", path, nil, &list, 200)
+	if len(list) != 0 {
+		t.Fatal("new task should have no comments")
+	}
+	var c1, c2 commentJSON
+	ann.must("POST", path, map[string]string{"bodyMd": "Tithe map shows *Hale* in 1840."}, &c1, 201)
+	bob.must("POST", path, map[string]string{"bodyMd": "Land tax 1832 too."}, &c2, 201)
+	if c1.Author.Username != "ann" || c1.Author.DisplayName != "ann" || c1.CreatedAt == "" {
+		t.Fatalf("comment attribution: %+v", c1)
+	}
+	if code, _ := ann.do("POST", path, map[string]string{"bodyMd": "   "}, nil); code != 422 {
+		t.Fatalf("empty comment: %d", code)
+	}
+	viewer.must("POST", path, map[string]string{"bodyMd": "hi"}, nil, 403)
+	ann.must("POST", fmt.Sprintf("%s/tasks/999/comments", base), map[string]string{"bodyMd": "x"}, nil, 404)
+	viewer.must("GET", fmt.Sprintf("%s/tasks/999/comments", base), nil, nil, 404)
+
+	viewer.must("GET", path, nil, &list, 200)
+	if len(list) != 2 || list[0].ID != c1.ID || list[1].ID != c2.ID {
+		t.Fatalf("comments should be chronological: %+v", list)
+	}
+	var tasks []taskJSON
+	viewer.must("GET", base+"/tasks", nil, &tasks, 200)
+	if len(tasks) != 1 || tasks[0].CommentCount != 2 {
+		t.Fatalf("commentCount: %+v", tasks)
+	}
+
+	// Only the author (or an admin) may edit or delete.
+	one := fmt.Sprintf("%s/%d", path, c1.ID)
+	var forbidden apiErr
+	if code, _ := bob.do("PATCH", one, map[string]string{"bodyMd": "hijack"}, &forbidden); code != 403 || forbidden.Error.Code != "not_author" {
+		t.Fatalf("non-author edit: %d %+v", code, forbidden)
+	}
+	bob.must("DELETE", one, nil, nil, 403)
+	var edited commentJSON
+	ann.must("PATCH", one, map[string]string{"bodyMd": "Tithe map shows *Hale* in 1841."}, &edited, 200)
+	if edited.BodyMD != "Tithe map shows *Hale* in 1841." || !edited.Edited { // edited within the same second still counts
+		t.Fatalf("edit: %+v", edited)
+	}
+	admin.must("DELETE", fmt.Sprintf("%s/%d", path, c2.ID), nil, nil, 204)
+	ann.must("DELETE", fmt.Sprintf("%s/%d", path, c2.ID), nil, nil, 404)
+	// A comment id from another task is not found under this task.
+	var other taskJSON
+	ann.must("POST", base+"/tasks", map[string]any{"title": "Other"}, &other, 201)
+	ann.must("DELETE", fmt.Sprintf("%s/tasks/%d/comments/%d", base, other.ID, c1.ID), nil, nil, 404)
+
+	// Research notes appear in the linked person's history.
+	var hist struct{ Items []struct{ Summary string } }
+	ann.must("GET", fmt.Sprintf("/api/v1/audit?personId=%d", walter), nil, &hist, 200)
+	var notes int
+	for _, h := range hist.Items {
+		if strings.Contains(h.Summary, "research note") {
+			notes++
+		}
+	}
+	if notes != 4 { // 2 added, 1 edited, 1 deleted
+		t.Fatalf("history notes: %+v", hist.Items)
+	}
+
+	// Deleting the task deletes its comments.
+	ann.must("DELETE", fmt.Sprintf("%s/tasks/%d", base, tk.ID), nil, nil, 204)
+	var n int
+	if err := e.db.PluginDB().QueryRow(context.Background(), `SELECT COUNT(*) FROM plg_task_comments`).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("comments should cascade: n=%d err=%v", n, err)
+	}
+}
+
+// An install created with plugin schema v1 upgrades to v2 (comments) on start.
+func TestUpgradeFromSchemaV1(t *testing.T) {
+	dir := t.TempDir()
+	e := start(t, dir)
+	_, ann, _, _, _ := setup(t, e)
+	var tk taskJSON
+	ann.must("POST", base+"/tasks", map[string]any{"title": "Made before comments existed"}, &tk, 201)
+	ctx := context.Background()
+	// Roll the database back to plugin schema v1.
+	db := e.db.PluginDB()
+	if err := db.WriteTx(ctx, store.SystemActor, func(tx *sql.Tx, _ func(store.AuditEntry) error) error {
+		for _, q := range []string{`DROP TABLE plg_task_comments`, `DELETE FROM plugin_migration WHERE plugin_id = 'task' AND version = 2`} {
+			if _, err := tx.ExecContext(ctx, q); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	e.stop()
+
+	e2 := start(t, dir)
+	ann2 := e2.login("ann", "password123")
+	var list []taskJSON
+	ann2.must("GET", base+"/tasks", nil, &list, 200)
+	if len(list) != 1 || list[0].CommentCount != 0 {
+		t.Fatalf("after upgrade: %+v", list)
+	}
+	ann2.must("POST", fmt.Sprintf("%s/tasks/%d/comments", base, tk.ID), map[string]string{"bodyMd": "Works after upgrade"}, nil, 201)
 }

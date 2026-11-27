@@ -2,11 +2,10 @@ import { Link } from "react-router-dom";
 import { relativeTime, userLabel } from "@/lib/format";
 import type { Task } from "./api";
 import { ClaimControls } from "./ClaimControls";
-import { PRIORITY, STATUS } from "./model";
+import { PRIORITY } from "./model";
+import { StatusPill } from "./StatusMenu";
 
-export function StatusBadge({ status }: { status: Task["status"] }) {
-  return <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${STATUS[status].tone}`}>{STATUS[status].label}</span>;
-}
+export { StatusBadge } from "./StatusMenu";
 
 export function PriorityLabel({ priority }: { priority: Task["priority"] }) {
   const p = PRIORITY[priority];
@@ -20,7 +19,7 @@ export function TaskRow({ task, onOpen, hidePerson }: { task: Task; onOpen: (t: 
     <li className="flex flex-col gap-2 rounded-xl bg-white p-4 shadow-sm ring-1 ring-stone-200 dark:bg-stone-900 dark:ring-stone-800 sm:flex-row sm:items-start">
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
-          <StatusBadge status={task.status} />
+          <StatusPill task={task} />
           <PriorityLabel priority={task.priority} />
           {task.tags.map((t) => <span key={t} className="rounded bg-stone-100 px-1.5 py-0.5 text-xs text-stone-600 dark:bg-stone-800 dark:text-stone-300">#{t}</span>)}
         </div>
@@ -41,6 +40,11 @@ export function TaskRow({ task, onOpen, hidePerson }: { task: Task; onOpen: (t: 
             <span>Claimed by <span className="font-medium text-stone-700 dark:text-stone-300">{userLabel(task.claimedBy)}</span>{task.claimedAt && ` · ${relativeTime(task.claimedAt)}`}</span>
           ) : task.status !== "done" ? <span>Unclaimed</span> : null}
           <span>Updated {relativeTime(task.updatedAt)} by {userLabel(task.updatedBy)}</span>
+          {task.commentCount > 0 && (
+            <span title={`${task.commentCount} research note${task.commentCount === 1 ? "" : "s"}`}>
+              <span aria-hidden="true">💬</span> {task.commentCount}<span className="sr-only"> research note{task.commentCount === 1 ? "" : "s"}</span>
+            </span>
+          )}
         </div>
       </div>
       <div className="flex shrink-0 flex-wrap gap-2"><ClaimControls task={task} /></div>

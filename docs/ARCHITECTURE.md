@@ -221,13 +221,24 @@ can't make the plugin re-run its migrations on the next start.
 Tables `plg_task_task` (title, `description_md`, status
 `open|in_progress|blocked|done`, priority, `claimed_by_user_id`/`claimed_at`, the
 attribution quartet), `plg_task_tag`, `plg_task_person` and `plg_task_media` (links
-cascade when a person or media item is deleted). Routes under
-`/api/v1/plugins/task/`: `GET/POST /tasks`, `GET/PUT/DELETE /tasks/{id}`,
-`POST /tasks/{id}/claim` (`{"takeOver": true}` to take over someone else's
-claim; claiming an open task makes it `in_progress`), `POST /tasks/{id}/unclaim`
-(claimer or admin; `in_progress` returns to `open`) and `GET /tags`. Changes are
-audited and appear in each linked person's History. UI: a "Research tasks" nav
-page and a "Tasks" tab on person profiles.
+cascade when a person or media item is deleted), and `plg_task_comments` (research
+notes: `task_id` cascading, `user_id` set null if the account is removed, `body_md`,
+`edited`, timestamps). Routes under `/api/v1/plugins/task/`:
+
+| Route | Notes |
+|---|---|
+| `GET/POST /tasks`, `GET/PUT/DELETE /tasks/{id}` | list items carry `commentCount` |
+| `POST /tasks/{id}/claim` | `{"takeOver": true}` to take over someone else's claim; an open task becomes `in_progress` |
+| `POST /tasks/{id}/unclaim` | claimer or admin; `in_progress` returns to `open` |
+| `PATCH /tasks/{id}/status` | quick switch between `in_progress`, `blocked`, `done`; `409 not_claimed` if the task is unclaimed |
+| `GET/POST /tasks/{id}/comments` | chronological; author is the current user |
+| `PATCH/DELETE /tasks/{id}/comments/{commentId}` | author or admin only |
+| `GET /tags` | tags in use with counts |
+
+Every change (including claims, quick status changes and notes) is audited and
+appears in each linked person's History. UI: a "Research tasks" nav page whose
+cards have an inline status menu once claimed and a 💬 note count, a task detail
+view with a research-notes thread, and a "Tasks" tab on person profiles.
 
 A DNA plugin would add `plg_dna_*` tables (kits, matches, segments), expose
 `/api/v1/plugins/dna/...`, contribute a `person.tab` ("DNA") and a `nav`
