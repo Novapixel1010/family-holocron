@@ -10,6 +10,7 @@ import { PageContainer } from "@/app/Layout";
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { inputClass } from "@/components/ui/Field";
+import { InfoTip } from "@/components/ui/InfoTip";
 import { Markdown } from "@/components/ui/Markdown";
 import { PageHeader } from "@/components/ui/Page";
 import { PersonPicker } from "@/components/ui/PersonPicker";
@@ -116,19 +117,27 @@ function TreeView({ rootId }: { rootId: number }) {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex flex-wrap items-end gap-3 border-b border-stone-200 bg-white px-4 py-3 dark:border-stone-800 dark:bg-stone-900">
+      {/* The toolbar is a sibling of the canvas (never inside <ReactFlow>) and stacks above it,
+          so the picker dropdown and tooltips can't be covered or have their clicks swallowed. */}
+      <div className="relative z-30 flex flex-wrap items-end gap-3 border-b border-stone-200 bg-white px-4 py-3 dark:border-stone-800 dark:bg-stone-900">
         <div className="w-full sm:w-72">
           {rootPerson.isPending ? <LoadingState className="py-2" label="Loading…" /> : (
-            <PersonPicker label="Root person" value={rootPerson.data ?? null} onChange={(p) => p && navigate(`/tree/${p.id}?${params.toString()}`)} />
+            <PersonPicker label="Root person" clearable={false} value={rootPerson.data ?? null}
+              onChange={(p) => p && p.id !== rootId && navigate(`/tree/${p.id}?${params.toString()}`)} />
           )}
         </div>
         <div className="space-y-1">
           <span className="block text-sm font-medium text-stone-700 dark:text-stone-300">Show</span>
-          <div className="flex rounded-lg bg-stone-100 p-1 text-sm dark:bg-stone-800" role="radiogroup" aria-label="Tree direction">
-            {(["ancestors", "descendants"] as const).map((d) => (
-              <button key={d} role="radio" aria-checked={direction === d} onClick={() => setParam("direction", d)}
-                className={`rounded-md px-3 py-1 font-medium capitalize ${direction === d ? "bg-white shadow-sm dark:bg-stone-900" : "text-stone-500"}`}>{d}</button>
-            ))}
+          <div className="flex items-center gap-1 rounded-lg bg-stone-100 p-1 text-sm dark:bg-stone-800">
+            <div className="flex" role="radiogroup" aria-label="Tree direction">
+              {(["ancestors", "descendants"] as const).map((d) => (
+                <span key={d} className="flex items-center gap-1 pr-1">
+                  <button role="radio" aria-checked={direction === d} onClick={() => setParam("direction", d)}
+                    className={`rounded-md px-3 py-1 font-medium capitalize ${direction === d ? "bg-white shadow-sm dark:bg-stone-900" : "text-stone-500"}`}>{d}</button>
+                  <InfoTip label={`About the ${d} view`} align={d === "ancestors" ? "left" : "center"}>{DIRECTION_HELP[d]}</InfoTip>
+                </span>
+              ))}
+            </div>
           </div>
         </div>
         <div className="space-y-1">
@@ -139,7 +148,8 @@ function TreeView({ rootId }: { rootId: number }) {
         </div>
         {tree.isFetching && <Spinner className="mb-2 h-5 w-5 text-stone-400" />}
       </div>
-      <div className="relative min-h-0 flex-1">
+      {/* isolate: React Flow's internal z-indexes stay inside the canvas's own stacking context. */}
+      <div className="relative isolate min-h-0 flex-1">
         {tree.isPending ? (
           <LoadingState label="Growing the tree…" className="h-full" />
         ) : tree.isError ? (
@@ -166,6 +176,11 @@ function TreeView({ rootId }: { rootId: number }) {
     </div>
   );
 }
+
+const DIRECTION_HELP: Record<TreeDirection, string> = {
+  ancestors: "Shows people this person came from — e.g., selecting Mom shows her parents and grandparents.",
+  descendants: "Shows people who came from this person — e.g., selecting Mom shows her children and grandchildren.",
+};
 
 const FIT = { padding: 0.15, maxZoom: 1.1, duration: 250 } as const;
 
