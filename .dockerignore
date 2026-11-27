@@ -1,0 +1,10 @@
+.git
+data
+web/node_modules
+server/frontend/dist/assets
+server/frontend/dist/index.html
+*.db
+*.db-wal
+*.db-shm
+.env
+web/*.tsbuildinfo
