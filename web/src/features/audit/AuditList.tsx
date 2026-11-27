@@ -45,7 +45,10 @@ function Entry({ e }: { e: AuditEntry }) {
       <div className="flex flex-wrap items-baseline gap-x-1.5 text-sm">
         <span className="font-semibold">{who}</span>
         <span className="text-stone-600 dark:text-stone-400">{verbs[e.action] ?? e.action}</span>
-        {entityNames[e.entityType] && <span className="text-stone-600 dark:text-stone-400">{entityNames[e.entityType]}</span>}
+        {/* Plugin-owned types (e.g. "task") fall back to their own name. */}
+        {(entityNames[e.entityType] ?? e.entityType.replace(/_/g, " ")) && (
+          <span className="text-stone-600 dark:text-stone-400">{entityNames[e.entityType] ?? e.entityType.replace(/_/g, " ")}</span>
+        )}
         <EntryLink e={e} />
         <span className="ml-auto text-xs text-stone-500" title={dateTime(e.createdAt)}>{relativeTime(e.createdAt)}</span>
       </div>

@@ -21,16 +21,17 @@ import (
 	"github.com/novapixel1010/family-holocron/internal/profile"
 	"github.com/novapixel1010/family-holocron/internal/version"
 	"github.com/novapixel1010/family-holocron/plugin"
-	"github.com/novapixel1010/family-holocron/plugin/builtin/stats"
+	"github.com/novapixel1010/family-holocron/plugins"
 	"github.com/novapixel1010/family-holocron/server"
 	"github.com/novapixel1010/family-holocron/store"
 	"github.com/novapixel1010/family-holocron/store/db/sqlite"
 )
 
-// registerPlugins is the single place where compiled-in plugins are listed.
-// A future family-holocron-dna module would be added here.
+// registerPlugins registers every plugin compiled into this binary (see plugins/plugins.go).
 func registerPlugins(r *plugin.Registry) {
-	r.Register(stats.New())
+	for _, p := range plugins.All() {
+		r.Register(p)
+	}
 }
 
 func main() {

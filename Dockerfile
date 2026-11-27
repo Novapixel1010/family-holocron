@@ -6,6 +6,8 @@ WORKDIR /src/web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY web/ ./
+# Plugin UIs live in plugins/<name>/web and are compiled into the same bundle.
+COPY plugins/ ../plugins/
 # Vite writes into ../server/frontend/dist (embedded by the Go build).
 RUN mkdir -p ../server/frontend/dist && npm run build
 

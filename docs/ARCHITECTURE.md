@@ -38,17 +38,21 @@ family-holocron/
 │       ├── exchange/        # GEDCOM import + export
 │       ├── audit/           # change log queries
 │       └── system/          # health, status, settings, plugin manifests
-├── plugin/
+├── plugin/                  # core plugin API (interfaces + registry); no plugins live here
 │   ├── plugin.go            # Plugin interfaces (manifest, routes, migrations, hooks)
 │   ├── registry.go          # registry, enable/disable, route gating
-│   └── builtin/stats/       # built-in example plugin (nav slot + API route)
+├── plugins/                 # compile-time plugin registry: one folder per plugin
+│   ├── plugins.go           # All(): the Go list of compiled-in plugins
+│   ├── web.ts               # the matching list of plugin web UIs
+│   ├── stats/               # Family statistics (Go + web/)
+│   └── task/                # Research Tasks: Go, migrations/, web/
 ├── web/                     # React + TS + Vite + Tailwind SPA
 │   └── src/
 │       ├── app/             # router, layout, providers
 │       ├── api/             # typed API client + types
 │       ├── components/ui/   # Button, Modal, Loading/Empty/Error states, …
 │       ├── features/        # auth, people, person, tree, timeline, media, settings, home
-│       └── plugins/         # web plugin registry + slots, core + stats plugins
+│       └── plugins/         # web slot registry + core profile tabs (plugin UIs live in /plugins)
 ├── Dockerfile               # node → go (CGO_ENABLED=0) → alpine runtime
 ├── compose.yaml             # docker compose up -d
 └── .env.example
@@ -192,6 +196,38 @@ type RouteProvider  interface { Routes() []Route }          // mounted under /ap
 type Migrator       interface { Migrations() []Migration }   // own tables: plg_<id>_*
 type ChangeListener interface { OnChange(ctx context.Context, c store.Change) } // after commit
 ```
+
+Plugins get SQL access to their own tables through `store.PluginDB`
+(`Query`, `QueryRow`, and `WriteTx`, which writes audit-log entries in the same
+transaction). They may read core tables but only write their own.
+
+### Compile-time registry and the On/Off switch
+
+Each plugin lives in `plugins/<name>/` with its Go code, `migrations/*.sql` and
+`web/` UI. Adding one means listing it in `plugins/plugins.go` and
+`plugins/web.ts`; Vite resolves `@plugins/*` to that folder and dedupes React etc.
+so plugin UIs share the app's libraries. **Settings → Plugins** turns a plugin
+on or off (admins only); the choice is stored in `system_setting`
+(`plugin.<id>.enabled`) and survives restarts. While a plugin is off, its routes
+return `404 plugin_disabled`, its nav items and profile tabs are hidden, and its
+data is kept. `HOLOCRON_DISABLED_PLUGINS` forces plugins off at the server level.
+
+Restore never replaces `schema_migration` / `plugin_migration`: they describe the
+live database's schema, so restoring a backup taken before a plugin existed
+can't make the plugin re-run its migrations on the next start.
+
+### Research Tasks (`plugins/task`)
+
+Tables `plg_task_task` (title, `description_md`, status
+`open|in_progress|blocked|done`, priority, `claimed_by_user_id`/`claimed_at`, the
+attribution quartet), `plg_task_tag`, `plg_task_person` and `plg_task_media` (links
+cascade when a person or media item is deleted). Routes under
+`/api/v1/plugins/task/`: `GET/POST /tasks`, `GET/PUT/DELETE /tasks/{id}`,
+`POST /tasks/{id}/claim` (`{"takeOver": true}` to take over someone else's
+claim; claiming an open task makes it `in_progress`), `POST /tasks/{id}/unclaim`
+(claimer or admin; `in_progress` returns to `open`) and `GET /tags`. Changes are
+audited and appear in each linked person's History. UI: a "Research tasks" nav
+page and a "Tasks" tab on person profiles.
 
 A DNA plugin would add `plg_dna_*` tables (kits, matches, segments), expose
 `/api/v1/plugins/dna/...`, contribute a `person.tab` ("DNA") and a `nav`

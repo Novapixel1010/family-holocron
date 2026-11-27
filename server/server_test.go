@@ -21,7 +21,7 @@ import (
 
 	"github.com/novapixel1010/family-holocron/internal/profile"
 	"github.com/novapixel1010/family-holocron/plugin"
-	"github.com/novapixel1010/family-holocron/plugin/builtin/stats"
+	"github.com/novapixel1010/family-holocron/plugins/stats"
 	"github.com/novapixel1010/family-holocron/server"
 	"github.com/novapixel1010/family-holocron/store"
 	"github.com/novapixel1010/family-holocron/store/db/sqlite"

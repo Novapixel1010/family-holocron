@@ -8,6 +8,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"sync"
 )
 
@@ -80,6 +81,7 @@ type Driver interface {
 	PluginSet(ctx context.Context, pluginID, key, value string) error
 	PluginDelete(ctx context.Context, pluginID, key string) error
 	ApplyPluginMigrations(ctx context.Context, pluginID string, migrations []PluginMigration) error
+	PluginDB() PluginDB
 
 	// Bulk import & maintenance.
 	Import(ctx context.Context, actor Actor, batch *ImportBatch) (*ImportResult, error)
@@ -185,4 +187,15 @@ func (s *Store) dispatch(c Change) {
 	for _, fn := range subs {
 		fn(c)
 	}
+}
+
+// PluginDB gives compiled-in plugins SQL access for their own plg_<id>_* tables.
+// Plugins may read core tables (e.g. to join user names) but must only write to
+// their own tables, and only through WriteTx so changes are audited atomically.
+type PluginDB interface {
+	Query(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRow(ctx context.Context, query string, args ...any) *sql.Row
+	// WriteTx runs fn in a write transaction. Entries passed to audit are written
+	// to the change log in the same transaction and broadcast after commit.
+	WriteTx(ctx context.Context, actor Actor, fn func(tx *sql.Tx, audit func(AuditEntry) error) error) error
 }
