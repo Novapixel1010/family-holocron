@@ -50,7 +50,7 @@ family-holocron/
 │       ├── features/        # auth, people, person, tree, timeline, media, settings, home
 │       └── plugins/         # web plugin registry + slots, core + stats plugins
 ├── Dockerfile               # node → go (CGO_ENABLED=0) → alpine runtime
-├── docker-compose.yml
+├── compose.yaml             # docker compose up -d
 └── .env.example
 ```
 
