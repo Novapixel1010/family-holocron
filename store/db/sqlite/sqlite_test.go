@@ -414,3 +414,40 @@ func TestImportBatch(t *testing.T) {
 		}
 	}
 }
+
+// A backup taken before a plugin existed must not erase the record of the plugin's
+// applied migrations: its tables still exist after restore, so re-running the
+// migration on the next start would fail with "table already exists".
+func TestRestoreKeepsPluginMigrationState(t *testing.T) {
+	db, path := newTestDB(t)
+	ctx := context.Background()
+	u := mustUser(t, db, "admin", store.RoleAdmin)
+	snap := filepath.Join(t.TempDir(), "before-plugin.db")
+	if err := db.SnapshotTo(ctx, snap); err != nil { // backup predates the plugin
+		t.Fatal(err)
+	}
+	migs := []store.PluginMigration{{Version: 1, SQL: `CREATE TABLE plg_demo_item (id INTEGER PRIMARY KEY, v TEXT)`}}
+	if err := db.ApplyPluginMigrations(ctx, "demo", migs); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := PrepareRestoreSource(ctx, snap); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.RestoreFrom(ctx, snap, store.KeepSession{UserID: u.ID, Username: "admin"}); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	// Simulate the next start-up: reopen and apply plugin migrations again.
+	db2, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db2.Close()
+	if err := db2.ApplyPluginMigrations(ctx, "demo", migs); err != nil {
+		t.Fatalf("plugin migration after restore: %v", err)
+	}
+	var n int
+	if err := db2.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM plg_demo_item`).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("plugin table after restore: n=%d err=%v", n, err)
+	}
+}

@@ -195,6 +195,14 @@ export function useSetPlugin() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) => api.put<PluginInfo[]>(`/api/v1/plugins/${id}`, { enabled }),
+    // Optimistic: the switch (and the plugin's nav items/tabs) respond immediately.
+    onMutate: async ({ id, enabled }) => {
+      await qc.cancelQueries({ queryKey: ["plugins"] });
+      const previous = qc.getQueryData<PluginInfo[]>(["plugins"]);
+      qc.setQueryData<PluginInfo[]>(["plugins"], (list) => list?.map((p) => (p.id === id ? { ...p, enabled } : p)));
+      return { previous };
+    },
+    onError: (_err, _vars, ctx) => ctx?.previous && qc.setQueryData(["plugins"], ctx.previous),
     onSuccess: (data) => qc.setQueryData(["plugins"], data),
   });
 }

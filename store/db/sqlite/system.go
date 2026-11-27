@@ -361,8 +361,16 @@ func (d *DB) RestoreFrom(ctx context.Context, path string, keep store.KeepSessio
 			keepRow = s
 		}
 	}
+	// Schema bookkeeping describes this database's live schema (which restore does not
+	// change), not the backup's data, so it is never replaced. Otherwise a backup taken
+	// before a plugin was installed would erase its migration record, and re-running the
+	// migration on the next start would fail because the plugin's tables still exist.
+	keepSchema := map[string]bool{"schema_migration": true, "plugin_migration": true}
 	// Phase 1: empty everything.
 	for _, t := range mainTables {
+		if keepSchema[t] {
+			continue
+		}
 		if _, err := tx.ExecContext(ctx, `DELETE FROM main.`+quoteIdent(t)); err != nil {
 			return fmt.Errorf("clear %s: %w", t, err)
 		}
@@ -372,7 +380,7 @@ func (d *DB) RestoreFrom(ctx context.Context, path string, keep store.KeepSessio
 	}
 	// Phase 2: copy rows (sessions are never restored).
 	for _, t := range mainTables {
-		if t == "session" || !slices.Contains(srcTables, t) {
+		if t == "session" || keepSchema[t] || !slices.Contains(srcTables, t) {
 			continue
 		}
 		mc, err := columnNames(ctx, tx, "main", t)
@@ -467,4 +475,24 @@ func PrepareRestoreSource(ctx context.Context, path string) (int, error) {
 		return from, err
 	}
 	return from, db.Close()
+}
+
+// pluginDB implements store.PluginDB.
+type pluginDB struct{ d *DB }
+
+// PluginDB implements store.Driver.
+func (d *DB) PluginDB() store.PluginDB { return pluginDB{d} }
+
+func (p pluginDB) Query(ctx context.Context, q string, args ...any) (*sql.Rows, error) {
+	return p.d.db.QueryContext(ctx, q, args...)
+}
+
+func (p pluginDB) QueryRow(ctx context.Context, q string, args ...any) *sql.Row {
+	return p.d.db.QueryRowContext(ctx, q, args...)
+}
+
+func (p pluginDB) WriteTx(ctx context.Context, actor store.Actor, fn func(tx *sql.Tx, audit func(store.AuditEntry) error) error) error {
+	return p.d.withTx(ctx, func(t *tx) error {
+		return fn(t.Tx, func(e store.AuditEntry) error { return t.audit(ctx, actor, e) })
+	})
 }

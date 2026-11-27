@@ -8,7 +8,8 @@ A self-hosted, modular family tree for your family's history. It ships as a sing
 - **Attribution everywhere.** Every person, relationship, event, note and media item records who created it and who last changed it. Each change also writes an audit-log entry with a field-by-field diff, and the UI shows both.
 - **Backup and restore.** One archive holds the database, media and a portable JSON export. Restore needs explicit confirmation. The archive is checked against checksums, an integrity check and the schema version, and a safety snapshot of the current data is taken before anything changes.
 - **No lock-in.** GEDCOM 5.5.1 import and export, plus a full JSON export.
-- **Plugins.** Plugins can add their own tables, API routes, nav pages and profile tabs without touching core tables. The planned `family-holocron-dna` plugin is meant to use this.
+- **Research tasks.** A shared research to-do list (built-in plugin): Markdown descriptions, status and priority, tags, links to people and source media, and claiming so relatives don't duplicate work.
+- **Plugins.** Each optional feature lives in `plugins/<name>/` and is compiled in. Plugins can add their own tables, API routes, nav pages and profile tabs without touching core tables, and admins turn them on or off in **Settings → Plugins**. The planned `family-holocron-dna` plugin is meant to use this.
 
 ## Quick start (Docker Compose)
 
@@ -63,7 +64,7 @@ go test -race ./...
 cd web && npm run typecheck && npm test
 ```
 
-The Go tests cover the SQLite driver (WAL and foreign keys, persistence across reopen, attribution and audit for every entity, cycle prevention, concurrent writes, snapshot and restore), the full HTTP API (setup, roles, attribution, tree, timeline, media, backup, tampered archives, restore, rollback to the safety snapshot, GEDCOM round trip, plugin gating), archive path-traversal guards, and GEDCOM and date parsing.
+The Go tests cover the SQLite driver (WAL and foreign keys, persistence across reopen, attribution and audit for every entity, cycle prevention, concurrent writes, snapshot and restore), the full HTTP API (setup, roles, attribution, tree, timeline, media, backup, tampered archives, restore, rollback to the safety snapshot, GEDCOM round trip, plugin gating), archive path-traversal guards, GEDCOM and date parsing, and the Research Tasks plugin (claim rules, concurrent claims, the On/Off switch surviving restarts, and backup/restore of tasks and their media).
 
 ## Architecture
 

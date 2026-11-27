@@ -1,4 +1,4 @@
-// Side-effect imports register every web plugin. Add new plugins here
-// (e.g. `import "./dna";` for family-holocron-dna).
+// Core profile tabs register through the same slot API as plugins.
 import "./core";
-import "./stats";
+// Every plugin in the top-level plugins/ folder (compile-time registry).
+import "@plugins/web";

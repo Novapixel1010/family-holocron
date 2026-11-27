@@ -1,10 +1,10 @@
-// Web half of the built-in "stats" plugin (see plugin/builtin/stats).
+// Web half of the built-in "stats" plugin (see ../stats.go).
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/api/client";
 import { PageContainer } from "@/app/Layout";
 import { Card, PageHeader } from "@/components/ui/Page";
 import { EmptyState, QueryBoundary } from "@/components/ui/States";
-import { registerWebPlugin } from "../registry";
+import { registerWebPlugin } from "@/plugins/registry";
 
 interface Count { label: string; count: number }
 interface Summary {

@@ -158,7 +158,7 @@ func (r *Registry) MountRoutes(rt *apiutil.Router) {
 		id := p.Manifest().ID
 		gated := rt.WithGate(func(*http.Request) error {
 			if !r.Enabled(id) {
-				return apiutil.NotFound("plugin")
+				return apiutil.Errorf(http.StatusNotFound, "plugin_disabled", "This plugin is turned off. An administrator can turn it on in Settings → Plugins.")
 			}
 			return nil
 		})
