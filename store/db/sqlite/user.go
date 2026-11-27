@@ -268,4 +268,3 @@ func (d *DB) DeleteExpiredSessions(ctx context.Context) error {
 	_, err := d.db.ExecContext(ctx, `DELETE FROM session WHERE expires_at <= ?`, now())
 	return err
 }
-

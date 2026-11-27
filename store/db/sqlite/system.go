@@ -426,3 +426,45 @@ func (d *DB) RestoreFrom(ctx context.Context, path string, keep store.KeepSessio
 	}
 	return tx.Commit()
 }
+
+// PrepareRestoreSource checks that the database file at path is a sound Family
+// Holocron database no newer than this build, then migrates it in place to the
+// current schema so it can be passed to RestoreFrom. It returns the schema
+// version the file had before migration.
+func PrepareRestoreSource(ctx context.Context, path string) (int, error) {
+	raw, err := sql.Open("sqlite", "file:"+path+"?_pragma=busy_timeout(5000)")
+	if err != nil {
+		return 0, err
+	}
+	defer raw.Close()
+	var result string
+	if err := raw.QueryRowContext(ctx, `PRAGMA integrity_check`).Scan(&result); err != nil {
+		return 0, fmt.Errorf("database is unreadable: %w", err)
+	}
+	if result != "ok" {
+		return 0, fmt.Errorf("database integrity check failed: %s", result)
+	}
+	tables, err := tableNames(ctx, raw, "main")
+	if err != nil {
+		return 0, err
+	}
+	for _, required := range []string{"schema_migration", "user", "person", "relationship", "event", "audit_log"} {
+		if !slices.Contains(tables, required) {
+			return 0, fmt.Errorf("not a Family Holocron database (missing table %q)", required)
+		}
+	}
+	var v sql.NullInt64
+	if err := raw.QueryRowContext(ctx, `SELECT MAX(version) FROM schema_migration`).Scan(&v); err != nil {
+		return 0, err
+	}
+	from := int(v.Int64)
+	if from > LatestSchemaVersion() {
+		return from, fmt.Errorf("backup schema version %d is newer than this version of Family Holocron supports (%d); upgrade first", from, LatestSchemaVersion())
+	}
+	raw.Close()
+	db, err := Open(ctx, path)
+	if err != nil {
+		return from, err
+	}
+	return from, db.Close()
+}

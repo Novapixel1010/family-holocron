@@ -424,6 +424,6 @@ func (d *DB) DeleteRelationship(ctx context.Context, actor store.Actor, id int64
 		}
 		return t.audit(ctx, actor, store.AuditEntry{Action: store.ActionDelete, EntityType: store.EntityRelationship, EntityID: id,
 			EntityLabel: fmt.Sprintf("%s %s %s", n1, map[string]string{"parent": "→ parent of", "spouse": "&"}[r.Type], n2),
-			PersonIDs: []int64{r.Person1ID, r.Person2ID}, Changes: store.Diff(r, nil)})
+			PersonIDs:   []int64{r.Person1ID, r.Person2ID}, Changes: store.Diff(r, nil)})
 	})
 }

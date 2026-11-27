@@ -38,8 +38,8 @@ type RelationshipInput struct {
 
 // FindRelationship filters relationships. Empty filters match everything.
 type FindRelationship struct {
-	PersonID   *int64  // either side
-	Type       string  // "" = any
-	ChildIDs   []int64 // parent links whose child is in the set
-	ParentIDs  []int64 // parent links whose parent is in the set
+	PersonID  *int64  // either side
+	Type      string  // "" = any
+	ChildIDs  []int64 // parent links whose child is in the set
+	ParentIDs []int64 // parent links whose parent is in the set
 }

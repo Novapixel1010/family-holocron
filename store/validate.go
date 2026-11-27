@@ -24,6 +24,17 @@ func RegisterEventType(t string) {
 	extraEventTypes[t] = true
 }
 
+// AllEventTypes returns core and plugin-registered event types.
+func AllEventTypes() []string {
+	out := slices.Clone(EventTypes)
+	extraEventTypesMu.RLock()
+	defer extraEventTypesMu.RUnlock()
+	for t := range extraEventTypes {
+		out = append(out, t)
+	}
+	return out
+}
+
 // IsEventType reports whether t is a known event type.
 func IsEventType(t string) bool {
 	if slices.Contains(EventTypes, t) {
