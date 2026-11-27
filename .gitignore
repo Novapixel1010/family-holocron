@@ -1,0 +1,11 @@
+/data/
+/holocron
+/bin/holocron/holocron
+*.db
+*.db-wal
+*.db-shm
+.env
+server/frontend/dist/*
+!server/frontend/dist/.gitkeep
+web/node_modules/
+web/coverage/
