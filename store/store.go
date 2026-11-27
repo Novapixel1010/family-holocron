@@ -70,6 +70,16 @@ type Driver interface {
 	UpdateMedia(ctx context.Context, actor Actor, id int64, in MediaInput) (*Media, error)
 	DeleteMedia(ctx context.Context, actor Actor, id int64) error
 
+	// Biography templates (admin-managed Markdown for the About section).
+	ListBioTemplates(ctx context.Context) ([]*BioTemplate, error)
+	GetBioTemplate(ctx context.Context, id int64) (*BioTemplate, error)
+	CreateBioTemplate(ctx context.Context, actor Actor, in BioTemplateInput) (*BioTemplate, error)
+	UpdateBioTemplate(ctx context.Context, actor Actor, id int64, in BioTemplateInput) (*BioTemplate, error)
+	DeleteBioTemplate(ctx context.Context, actor Actor, id int64) error
+	// SeedBioTemplates inserts the starter template once per database: only when the
+	// table is empty and it has never been seeded, so deleting every template sticks.
+	SeedBioTemplates(ctx context.Context) error
+
 	// Audit log.
 	ListAudit(ctx context.Context, find FindAudit) ([]*AuditEntry, error)
 	RecordAudit(ctx context.Context, actor Actor, e AuditEntry) error

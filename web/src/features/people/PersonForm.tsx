@@ -6,6 +6,7 @@ import { DateField } from "@/components/ui/DateField";
 import { Select, TextInput } from "@/components/ui/Field";
 import { MarkdownEditor } from "@/components/ui/Markdown";
 import { InlineError } from "@/components/ui/States";
+import { InsertTemplateButton } from "@/features/person/InsertTemplateButton";
 import { checkVitals, parseISODate } from "@/lib/dates";
 import { formatGenDate, isSortableDate } from "@/lib/format";
 
@@ -82,6 +83,7 @@ export function PersonForm({
       </fieldset>
       {!compact && (
         <MarkdownEditor label="About" value={p.about} onChange={(v) => set("about", v)} rows={8} error={fields.about}
+          toolbar={<InsertTemplateButton value={p.about} onChange={(v) => set("about", v)} />}
           placeholder="Family stories, personality, what they did, how people remember them…" />
       )}
       {attempted && (vitals.birthError || vitals.deathError) && (

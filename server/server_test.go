@@ -884,3 +884,92 @@ func TestEventAndRelationshipDatesUseISO(t *testing.T) {
 	}
 	t.Fatalf("legacy relationship not imported: %+v", rels)
 }
+
+func TestBioTemplatesAPI(t *testing.T) {
+	e := newEnv(t)
+	admin := setupAdmin(t, e)
+	admin.must("POST", "/api/v1/users", map[string]string{"username": "eddie", "password": "editor-pass", "role": "editor"}, nil, 201)
+	admin.must("POST", "/api/v1/users", map[string]string{"username": "vera", "password": "viewer-pass", "role": "viewer"}, nil, 201)
+	editor := e.client()
+	editor.must("POST", "/api/v1/auth/login", map[string]string{"username": "eddie", "password": "editor-pass"}, nil, 200)
+	viewer := e.client()
+	viewer.must("POST", "/api/v1/auth/login", map[string]string{"username": "vera", "password": "viewer-pass"}, nil, 200)
+
+	type tmpl struct {
+		ID          int64                      `json:"id"`
+		Name        string                     `json:"name"`
+		Description string                     `json:"description"`
+		ContentMD   string                     `json:"contentMd"`
+		SortOrder   int                        `json:"sortOrder"`
+		CreatedBy   *struct{ Username string } `json:"createdBy"`
+		UpdatedBy   *struct{ Username string } `json:"updatedBy"`
+	}
+	var list []tmpl
+	viewer.must("GET", "/api/v1/bio-templates", nil, &list, 200)
+	if len(list) != 1 || list[0].Name != "Standard Biography" || list[0].CreatedBy != nil {
+		t.Fatalf("seeded starter template visible to everyone (system-created): %+v", list)
+	}
+	e.client().must("GET", "/api/v1/bio-templates", nil, nil, 401)
+
+	body := map[string]any{"name": "Quick Memories", "description": "Five-minute version", "contentMd": "## A memory\n- ", "sortOrder": -1}
+	editor.must("POST", "/api/v1/bio-templates", body, nil, 403)
+	viewer.must("POST", "/api/v1/bio-templates", body, nil, 403)
+	var q tmpl
+	admin.must("POST", "/api/v1/bio-templates", body, &q, 201)
+	if q.CreatedBy == nil || q.CreatedBy.Username != "root" || q.UpdatedBy.Username != "root" {
+		t.Fatalf("attribution: %+v", q)
+	}
+	var fe struct {
+		Error struct{ Fields map[string]string } `json:"error"`
+	}
+	admin.do("POST", "/api/v1/bio-templates", map[string]any{"name": "quick memories", "contentMd": "x"}, &fe)
+	if fe.Error.Fields["name"] == "" {
+		t.Fatalf("duplicate name (case-insensitive) should be a field error: %+v", fe)
+	}
+	if code := admin.do("POST", "/api/v1/bio-templates", map[string]any{"name": "", "contentMd": "  "}, &fe); code != 422 || fe.Error.Fields["contentMd"] == "" {
+		t.Fatalf("validation: %d %+v", code, fe)
+	}
+
+	// Ordered by sort_order, then name.
+	viewer.must("GET", "/api/v1/bio-templates", nil, &list, 200)
+	if len(list) != 2 || list[0].Name != "Quick Memories" {
+		t.Fatalf("order: %+v", list)
+	}
+	editor.must("PUT", fmt.Sprintf("/api/v1/bio-templates/%d", q.ID), body, nil, 403)
+	body["contentMd"] = "## A memory\n- Who was there?"
+	var upd tmpl
+	admin.must("PUT", fmt.Sprintf("/api/v1/bio-templates/%d", q.ID), body, &upd, 200)
+	if upd.ContentMD != "## A memory\n- Who was there?" || upd.UpdatedBy.Username != "root" {
+		t.Fatalf("update: %+v", upd)
+	}
+	admin.must("PUT", "/api/v1/bio-templates/999", body, nil, 404)
+
+	// Audited.
+	var audit struct {
+		Items []struct{ EntityType, Action string }
+	}
+	admin.must("GET", "/api/v1/audit?entityType=bio_template", nil, &audit, 200)
+	if len(audit.Items) != 2 {
+		t.Fatalf("audit: %+v", audit.Items)
+	}
+
+	// Backups include templates.
+	code, archive, _ := admin.raw("/api/v1/backups/download")
+	if code != 200 {
+		t.Fatalf("backup: %d", code)
+	}
+	editor.must("DELETE", fmt.Sprintf("/api/v1/bio-templates/%d", q.ID), nil, nil, 403)
+	admin.must("DELETE", fmt.Sprintf("/api/v1/bio-templates/%d", q.ID), nil, nil, 204)
+	admin.must("DELETE", fmt.Sprintf("/api/v1/bio-templates/%d", q.ID), nil, nil, 404)
+	var info struct{ Name string }
+	if code := admin.upload("/api/v1/backups/upload", "file", "b.tar.gz", archive, nil, &info); code != 201 {
+		t.Fatalf("upload backup: %d", code)
+	}
+	admin.must("POST", "/api/v1/backups/"+info.Name+"/restore", map[string]string{"confirm": "RESTORE"}, nil, 200)
+	viewer2 := e.client()
+	viewer2.must("POST", "/api/v1/auth/login", map[string]string{"username": "vera", "password": "viewer-pass"}, nil, 200)
+	viewer2.must("GET", "/api/v1/bio-templates", nil, &list, 200)
+	if len(list) != 2 || list[0].ContentMD != "## A memory\n- Who was there?" {
+		t.Fatalf("templates after restore: %+v", list)
+	}
+}

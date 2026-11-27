@@ -296,3 +296,14 @@ export interface PluginInfo {
   enabled: boolean;
   locked: boolean;
 }
+
+export interface BioTemplateInput {
+  name: string;
+  description: string;
+  contentMd: string;
+  sortOrder: number;
+}
+
+export interface BioTemplate extends BioTemplateInput, Attribution {
+  id: number;
+}

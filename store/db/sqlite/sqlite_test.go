@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -449,5 +450,48 @@ func TestRestoreKeepsPluginMigrationState(t *testing.T) {
 	var n int
 	if err := db2.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM plg_demo_item`).Scan(&n); err != nil || n != 0 {
 		t.Fatalf("plugin table after restore: n=%d err=%v", n, err)
+	}
+}
+
+func TestBioTemplateSeedingIsOneTime(t *testing.T) {
+	db, path := newTestDB(t)
+	ctx := context.Background()
+	if err := db.SeedBioTemplates(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SeedBioTemplates(ctx); err != nil { // idempotent
+		t.Fatal(err)
+	}
+	list, _ := db.ListBioTemplates(ctx)
+	if len(list) != 1 || list[0].Name != "Standard Biography" || !strings.Contains(list[0].ContentMD, "## Places Lived") ||
+		!strings.Contains(list[0].ContentMD, "## Favorite Food") || !strings.Contains(list[0].ContentMD, "## Memorable Stories") {
+		t.Fatalf("seeded templates: %+v", list)
+	}
+	// An admin deleting every template must stick across restarts.
+	admin := mustUser(t, db, "admin", store.RoleAdmin)
+	if err := db.DeleteBioTemplate(ctx, admin.Actor(), list[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	db2, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db2.Close()
+	if err := db2.SeedBioTemplates(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if list, _ := db2.ListBioTemplates(ctx); len(list) != 0 {
+		t.Fatalf("deleted starter template came back: %+v", list)
+	}
+	// A database that already has templates (e.g. created before seeding) is not touched.
+	db3, _ := newTestDB(t)
+	a3 := mustUser(t, db3, "admin", store.RoleAdmin)
+	if _, err := db3.CreateBioTemplate(ctx, a3.Actor(), store.BioTemplateInput{Name: "Mine", ContentMD: "x"}); err != nil {
+		t.Fatal(err)
+	}
+	db3.SeedBioTemplates(ctx)
+	if list, _ := db3.ListBioTemplates(ctx); len(list) != 1 || list[0].Name != "Mine" {
+		t.Fatalf("seed must not add to an existing list: %+v", list)
 	}
 }

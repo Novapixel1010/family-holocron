@@ -6,6 +6,7 @@ import { EmptyState, InlineError } from "@/components/ui/States";
 import { useToast } from "@/components/ui/Toast";
 import { personName } from "@/lib/format";
 import type { PersonTabProps } from "@/plugins/registry";
+import { InsertTemplateButton } from "../InsertTemplateButton";
 
 export function AboutTab({ person, canEdit }: PersonTabProps) {
   const [editing, setEditing] = useState(false);
@@ -17,6 +18,7 @@ export function AboutTab({ person, canEdit }: PersonTabProps) {
     return (
       <div className="space-y-3">
         <MarkdownEditor label={`About ${personName(person)}`} value={draft} onChange={setDraft} rows={14}
+          toolbar={<InsertTemplateButton value={draft} onChange={setDraft} />}
           placeholder="Write their story: where they grew up, what they did, what people remember about them…" />
         <InlineError error={update.error} />
         <div className="flex justify-end gap-2">

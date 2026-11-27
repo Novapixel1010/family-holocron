@@ -8,6 +8,7 @@ import { usePluginSlots } from "@/plugins/usePluginSlots";
 import { AccountSection } from "./sections/AccountSection";
 import { ActivitySection } from "./sections/ActivitySection";
 import { BackupSection } from "./sections/BackupSection";
+import { BioTemplatesSection } from "./sections/BioTemplatesSection";
 import { GeneralSection } from "./sections/GeneralSection";
 import { ImportExportSection } from "./sections/ImportExportSection";
 import { PluginsSection } from "./sections/PluginsSection";
@@ -24,6 +25,7 @@ const core: Section[] = [
   { id: "account", label: "Your account", component: AccountSection },
   { id: "general", label: "General", adminOnly: true, component: GeneralSection },
   { id: "users", label: "Users", adminOnly: true, component: UsersSection },
+  { id: "bio-templates", label: "Bio templates", adminOnly: true, component: BioTemplatesSection },
   { id: "backup", label: "Backup & restore", adminOnly: true, component: BackupSection },
   { id: "import-export", label: "Import & export", component: ImportExportSection },
   { id: "activity", label: "Activity log", component: ActivitySection },
