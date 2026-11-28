@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addDays, addMonths, checkDate, checkDateRange, checkVitals, compareISO, daysInMonth, firstWeekday, formatVitalDate, parseISODate, vitalRange } from "./dates";
+import { addDays, addMonths, checkDate, checkDateRange, checkVitals, compareISO, daysInMonth, firstWeekday, formatDateTime, formatVitalDate, parseISODate, vitalRange } from "./dates";
 
 describe("parseISODate", () => {
   it("accepts and normalizes ISO dates", () => {
@@ -89,5 +89,18 @@ describe("checkDate / checkDateRange", () => {
   it("rejects an end before the start", () => {
     expect(checkDateRange("1925-06-01", "1920", "", "", undefined, today).end.error).toMatch(/before the start date \(1925-06-01\)/);
     expect(checkDateRange("1925", "1925-12", "", "", undefined, today).end.error).toBeUndefined();
+  });
+});
+
+describe("formatDateTime", () => {
+  it("formats timestamps as local YYYY-MM-DD HH:mm", () => {
+    const d = new Date(2026, 0, 5, 7, 3, 59);
+    expect(formatDateTime(d.toISOString())).toBe("2026-01-05 07:03");
+    expect(formatDateTime(new Date(2026, 11, 31, 23, 59).toISOString())).toBe("2026-12-31 23:59");
+  });
+  it("returns empty for missing or invalid values", () => {
+    expect(formatDateTime(null)).toBe("");
+    expect(formatDateTime("")).toBe("");
+    expect(formatDateTime("nope")).toBe("");
   });
 });

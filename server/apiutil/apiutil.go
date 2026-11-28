@@ -73,6 +73,7 @@ type ctxKey int
 const (
 	userKey ctxKey = iota
 	sessionKey
+	accessTokenKey
 )
 
 // WithUser stores the signed-in user (and session token hash) in ctx.
@@ -91,6 +92,18 @@ func UserFrom(ctx context.Context) *store.User {
 func SessionFrom(ctx context.Context) string {
 	s, _ := ctx.Value(sessionKey).(string)
 	return s
+}
+
+// WithAccessToken marks the request as authenticated by personal access token id.
+func WithAccessToken(ctx context.Context, id int64) context.Context {
+	return context.WithValue(ctx, accessTokenKey, id)
+}
+
+// AccessTokenFrom returns the id of the personal access token that authenticated
+// the request, or 0 for cookie sessions and anonymous requests.
+func AccessTokenFrom(ctx context.Context) int64 {
+	id, _ := ctx.Value(accessTokenKey).(int64)
+	return id
 }
 
 // ActorFrom returns the attribution actor for the request.

@@ -30,6 +30,21 @@ export interface User {
   updatedAt: string;
 }
 
+/** A personal access token; acts as its owner (same role and attribution). */
+export interface AccessToken {
+  id: number;
+  description: string;
+  createdAt: string;
+  /** null: never expires. */
+  expiresAt: string | null;
+  lastUsedAt: string | null;
+}
+
+/** The creation response: the only time the plaintext token is available. */
+export interface CreatedAccessToken extends AccessToken {
+  token: string;
+}
+
 export type Sex = "M" | "F" | "X" | "U";
 
 export interface PersonInput {

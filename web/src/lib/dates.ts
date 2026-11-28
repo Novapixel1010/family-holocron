@@ -182,3 +182,12 @@ export function legacyDateHint(value: string, initial: string): string | undefin
     ? `Recorded as “${value}” before dates were standardized. Pick a date, or enter YYYY if only the year is known.`
     : undefined;
 }
+
+/** A timestamp as "YYYY-MM-DD HH:mm" in the viewer's local time ("" if invalid). */
+export function formatDateTime(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}

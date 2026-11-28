@@ -38,6 +38,15 @@ type Driver interface {
 	DeleteUserSessions(ctx context.Context, userID int64, exceptTokenHash string) error
 	DeleteExpiredSessions(ctx context.Context) error
 
+	// Personal access tokens. Every method is scoped to the owning user.
+	CreateAccessToken(ctx context.Context, actor Actor, t *AccessToken) (*AccessToken, error)
+	ListAccessTokens(ctx context.Context, userID int64) ([]*AccessToken, error)
+	// DeleteAccessToken returns ErrNotFound unless token id belongs to userID.
+	DeleteAccessToken(ctx context.Context, actor Actor, userID, id int64) error
+	// GetAccessToken resolves a token hash to the token and its owner (expired tokens included).
+	GetAccessToken(ctx context.Context, tokenHash string) (*AccessToken, *User, error)
+	TouchAccessToken(ctx context.Context, id int64) error
+
 	// People.
 	CreatePerson(ctx context.Context, actor Actor, in PersonInput) (*Person, error)
 	GetPerson(ctx context.Context, id int64) (*Person, error)
