@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { api, qs } from "./client";
 import type {
-  AuditPage, BackupInfo, BioTemplate, BioTemplateInput, EventInput, Family, HolocronEvent, ImportResult, Media, MediaInput, Note, Page, Person,
+  AccessToken, AuditPage, BackupInfo, BioTemplate, BioTemplateInput, CreatedAccessToken, EventInput, Family, HolocronEvent, ImportResult, Media, MediaInput, Note, Page, Person,
   PersonInput, PluginInfo, Relationship, RelationshipInput, RestoreResult, Stats, Status, TimelineResponse,
   TreeDirection, TreeResponse, User,
 } from "./types";
@@ -180,6 +180,26 @@ export function useUserMutations() {
         api.patch<User>(`/api/v1/users/${id}`, patch),
       onSuccess: done,
     }),
+  };
+}
+
+// ---- personal access tokens -------------------------------------------------------
+
+export const useAccessTokens = () =>
+  useQuery({ queryKey: ["access-tokens"], queryFn: () => api.get<AccessToken[]>("/api/v1/user/access-tokens") });
+
+export function useAccessTokenMutations() {
+  const qc = useQueryClient();
+  const done = () => {
+    qc.invalidateQueries({ queryKey: ["access-tokens"] });
+    qc.invalidateQueries({ queryKey: ["audit"] });
+  };
+  return {
+    create: useMutation({
+      mutationFn: (in_: { description: string; expiresInDays: number | null }) => api.post<CreatedAccessToken>("/api/v1/user/access-tokens", in_),
+      onSuccess: done,
+    }),
+    revoke: useMutation({ mutationFn: (id: number) => api.del(`/api/v1/user/access-tokens/${id}`), onSuccess: done }),
   };
 }
 

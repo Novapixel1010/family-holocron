@@ -516,3 +516,52 @@ func TestMustChangePasswordRequiresLocalPassword(t *testing.T) {
 		t.Fatalf("session user: %v %+v", err, su)
 	}
 }
+
+func TestAccessTokensAreOwnedAndCascade(t *testing.T) {
+	db, _ := newTestDB(t)
+	ctx := context.Background()
+	alice := mustUser(t, db, "alice", store.RoleEditor)
+	bob := mustUser(t, db, "bob", store.RoleViewer)
+	hash := strings.Repeat("a", 64)
+	exp := unix(now() + 3600)
+	at, err := db.CreateAccessToken(ctx, alice.Actor(), &store.AccessToken{UserID: alice.ID, Description: "  Sync  ", TokenHash: hash, ExpiresAt: &exp})
+	if err != nil || at.Description != "Sync" || at.ExpiresAt == nil || !at.ExpiresAt.Equal(exp) || at.LastUsedAt != nil {
+		t.Fatalf("create: %v %+v", err, at)
+	}
+	if _, err := db.CreateAccessToken(ctx, bob.Actor(), &store.AccessToken{UserID: bob.ID, Description: "dupe", TokenHash: hash}); err == nil {
+		t.Fatal("token hashes must be unique")
+	}
+	if _, err := db.CreateAccessToken(ctx, bob.Actor(), &store.AccessToken{UserID: bob.ID, Description: strings.Repeat("x", 101), TokenHash: strings.Repeat("b", 64)}); err == nil {
+		t.Fatal("over-long description accepted")
+	}
+	if _, err := db.db.ExecContext(ctx, `INSERT INTO user_access_tokens (user_id, description, token_hash, created_at) VALUES (?, '   ', 'c', 0)`, bob.ID); err == nil {
+		t.Fatal("CHECK should reject a blank description")
+	}
+	got, owner, err := db.GetAccessToken(ctx, hash)
+	if err != nil || got.ID != at.ID || owner.Username != "alice" || owner.Role != store.RoleEditor {
+		t.Fatalf("lookup: %v %+v %+v", err, got, owner)
+	}
+	if _, _, err := db.GetAccessToken(ctx, strings.Repeat("f", 64)); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("unknown hash: %v", err)
+	}
+	if err := db.TouchAccessToken(ctx, at.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got, _, _ := db.GetAccessToken(ctx, hash); got.LastUsedAt == nil {
+		t.Fatal("touch did not set last_used_at")
+	}
+	// Another user can neither see nor revoke it.
+	if list, _ := db.ListAccessTokens(ctx, bob.ID); len(list) != 0 {
+		t.Fatalf("bob sees %d tokens", len(list))
+	}
+	if err := db.DeleteAccessToken(ctx, bob.Actor(), bob.ID, at.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("cross-user revoke: %v", err)
+	}
+	// Deleting the owner deletes their tokens.
+	if _, err := db.db.ExecContext(ctx, `DELETE FROM user WHERE id = ?`, alice.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := db.GetAccessToken(ctx, hash); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("token should cascade with its user: %v", err)
+	}
+}

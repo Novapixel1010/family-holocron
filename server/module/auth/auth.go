@@ -72,6 +72,17 @@ func HashToken(token string) string {
 // Middleware resolves the session cookie and attaches the user to the request context.
 func (m *Module) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// "Authorization: Bearer fh_pat_…" takes precedence over the cookie.
+		if token, ok := bearerToken(r); ok {
+			ctx, err := m.authenticateAccessToken(r.Context(), token)
+			if err != nil {
+				w.Header().Set("WWW-Authenticate", `Bearer realm="family-holocron"`)
+				apiutil.WriteError(w, m.Logger, err)
+				return
+			}
+			next.ServeHTTP(w, r.WithContext(ctx))
+			return
+		}
 		c, err := r.Cookie(CookieName)
 		if err == nil && c.Value != "" {
 			th := HashToken(c.Value)
@@ -112,6 +123,9 @@ func (m *Module) Register(rt *apiutil.Router) {
 	rt.Handle(RouteChangePassword, apiutil.Viewer, m.changePassword)
 	rt.Handle(RouteIdentityProviders, apiutil.Public, m.identityProviders)
 	rt.Handle(RouteOAuthCallback, apiutil.Public, m.oauthCallback)
+	rt.Handle(RouteListAccessTokens, apiutil.Viewer, m.listAccessTokens)
+	rt.Handle(RouteCreateAccessToken, apiutil.Viewer, m.createAccessToken)
+	rt.Handle(RouteDeleteAccessToken, apiutil.Viewer, m.deleteAccessToken)
 	rt.Handle("GET /api/v1/users", apiutil.Viewer, m.listUsers)
 	rt.Handle("POST /api/v1/users", apiutil.Admin, m.createUser)
 	rt.Handle("PATCH /api/v1/users/{id}", apiutil.Admin, m.updateUser)

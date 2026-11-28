@@ -8,6 +8,7 @@ import { TextInput } from "@/components/ui/Field";
 import { Badge, Card } from "@/components/ui/Page";
 import { InlineError } from "@/components/ui/States";
 import { useToast } from "@/components/ui/Toast";
+import { AccessTokensCard } from "./AccessTokensCard";
 
 export function AccountSection() {
   const { user } = useAuth();
@@ -67,6 +68,7 @@ export function AccountSection() {
           <div><Button type="submit" variant="primary" loading={pBusy}>Save profile</Button></div>
         </form>
       </Card>
+      <AccessTokensCard />
       <Card>
         <h2 className="mb-4 font-semibold">Change password</h2>
         <form onSubmit={changePassword} className="grid max-w-lg gap-4">
