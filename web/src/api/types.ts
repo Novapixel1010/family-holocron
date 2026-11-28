@@ -22,6 +22,10 @@ export interface User {
   email: string;
   role: Role;
   status: "active" | "disabled";
+  /** Set while the user still has an admin-assigned temporary password. */
+  mustChangePassword: boolean;
+  /** False for accounts that sign in only through an identity provider. */
+  hasLocalPassword: boolean;
   createdAt: string;
   updatedAt: string;
 }

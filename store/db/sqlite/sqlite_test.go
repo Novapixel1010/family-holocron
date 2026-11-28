@@ -495,3 +495,24 @@ func TestBioTemplateSeedingIsOneTime(t *testing.T) {
 		t.Fatalf("seed must not add to an existing list: %+v", list)
 	}
 }
+
+func TestMustChangePasswordRequiresLocalPassword(t *testing.T) {
+	db, _ := newTestDB(t)
+	ctx := context.Background()
+	u := mustUser(t, db, "local", store.RoleEditor)
+	yes := true
+	got, err := db.UpdateUser(ctx, store.SystemActor, u.ID, store.UpdateUser{MustChangePassword: &yes})
+	if err != nil || !got.MustChangePassword {
+		t.Fatalf("flag local account: %v %+v", err, got)
+	}
+	// The database itself refuses the flag on an account without a local password.
+	if _, err := db.db.ExecContext(ctx, `UPDATE user SET password_hash = '' WHERE id = ?`, u.ID); err == nil || !strings.Contains(err.Error(), "CHECK") {
+		t.Fatalf("CHECK constraint should reject emptying the hash while flagged: %v", err)
+	}
+	// Session lookups carry the flag (the middleware relies on it).
+	db.CreateSession(ctx, &store.Session{TokenHash: "t", UserID: u.ID, CreatedAt: unix(now()), ExpiresAt: unix(now() + 60), LastSeenAt: unix(now())})
+	_, su, err := db.GetSession(ctx, "t")
+	if err != nil || !su.MustChangePassword || !su.HasLocalPassword {
+		t.Fatalf("session user: %v %+v", err, su)
+	}
+}

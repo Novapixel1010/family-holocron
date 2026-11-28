@@ -53,7 +53,9 @@ function UserRow({ u, onReset }: { u: User; onReset: () => void }) {
   return (
     <li className="flex flex-wrap items-center gap-3 py-3">
       <div className="min-w-0 flex-1">
-        <div className="font-medium">{u.displayName || u.username} {u.id === me.id && <Badge>you</Badge>} {u.status === "disabled" && <Badge tone="red">disabled</Badge>}</div>
+        <div className="font-medium">{u.displayName || u.username} {u.id === me.id && <Badge>you</Badge>} {u.status === "disabled" && <Badge tone="red">disabled</Badge>}
+          {u.mustChangePassword && <span title="They must choose a new password at their next sign-in"><Badge tone="amber">Temporary password</Badge></span>}
+          {!u.hasLocalPassword && <Badge>Single sign-on</Badge>}</div>
         <div className="text-xs text-stone-500">@{u.username}{u.email && ` · ${u.email}`} · joined {relativeTime(u.createdAt)}</div>
       </div>
       <select aria-label={`Role for ${u.username}`} className={`${inputClass} w-auto`} value={u.role} disabled={busy}
@@ -72,7 +74,7 @@ function UserRow({ u, onReset }: { u: User; onReset: () => void }) {
 }
 
 function CreateUserModal({ onClose }: { onClose: () => void }) {
-  const [f, setF] = useState({ username: "", displayName: "", email: "", password: "", role: "editor" });
+  const [f, setF] = useState({ username: "", displayName: "", email: "", password: "", role: "editor", mustChangePassword: true });
   const { create } = useUserMutations();
   const toast = useToast();
   const fields = create.error instanceof ApiError ? create.error.fields : {};
@@ -86,7 +88,8 @@ function CreateUserModal({ onClose }: { onClose: () => void }) {
         <TextInput label="Username" required value={f.username} onChange={(e) => setF({ ...f, username: e.target.value })} error={fields.username} autoComplete="off" />
         <TextInput label="Display name" value={f.displayName} onChange={(e) => setF({ ...f, displayName: e.target.value })} />
         <TextInput label="Email (optional)" type="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} />
-        <TextInput label="Temporary password" type="password" required minLength={8} autoComplete="new-password" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} error={fields.password} hint="Share it privately; they can change it under Your account." />
+        <TextInput label="Password" type="password" required minLength={8} autoComplete="new-password" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} error={fields.password} hint="Share it privately." />
+        <TemporaryCheckbox checked={f.mustChangePassword} onChange={(v) => setF({ ...f, mustChangePassword: v })} who="They" />
         <Select label="Role" value={f.role} onChange={(e) => setF({ ...f, role: e.target.value })} options={ROLES} error={fields.role} />
         <InlineError error={create.error} />
         <div className="flex justify-end gap-2">
@@ -100,6 +103,7 @@ function CreateUserModal({ onClose }: { onClose: () => void }) {
 
 function ResetPasswordModal({ user, onClose }: { user: User; onClose: () => void }) {
   const [password, setPassword] = useState("");
+  const [temporary, setTemporary] = useState(true);
   const { update } = useUserMutations();
   const toast = useToast();
   const fields = update.error instanceof ApiError ? update.error.fields : {};
@@ -107,9 +111,14 @@ function ResetPasswordModal({ user, onClose }: { user: User; onClose: () => void
     <Modal open onClose={onClose} title={`Reset password for ${user.username}`} size="sm">
       <form className="space-y-4" onSubmit={async (e) => {
         e.preventDefault();
-        try { await update.mutateAsync({ id: user.id, password }); toast("Password reset; their other sessions were signed out"); onClose(); } catch { /* inline */ }
+        try {
+          await update.mutateAsync({ id: user.id, password, mustChangePassword: temporary });
+          toast(temporary ? "Temporary password set; they'll choose a new one at sign-in" : "Password reset; their other sessions were signed out");
+          onClose();
+        } catch { /* inline */ }
       }}>
         <TextInput label="New password" type="password" required minLength={8} autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} error={fields.password} />
+        <TemporaryCheckbox checked={temporary} onChange={setTemporary} who={user.displayName || user.username} />
         <InlineError error={update.error} />
         <div className="flex justify-end gap-2">
           <Button onClick={onClose}>Cancel</Button>
@@ -117,5 +126,17 @@ function ResetPasswordModal({ user, onClose }: { user: User; onClose: () => void
         </div>
       </form>
     </Modal>
+  );
+}
+
+function TemporaryCheckbox({ checked, onChange, who }: { checked: boolean; onChange: (v: boolean) => void; who: string }) {
+  return (
+    <label className="flex items-start gap-2 rounded-lg bg-stone-50 p-3 text-sm ring-1 ring-stone-200 dark:bg-stone-800/50 dark:ring-stone-700">
+      <input type="checkbox" className="mt-0.5 h-4 w-4 rounded" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+      <span>
+        <span className="font-medium">Temporary password</span>
+        <span className="block text-stone-500">{who} must choose a new password the next time they sign in.</span>
+      </span>
+    </label>
   );
 }

@@ -77,7 +77,7 @@ type client struct {
 func (e *env) login(user, pass string) *client {
 	jar, _ := cookiejar.New(nil)
 	c := &client{e: e, c: &http.Client{Jar: jar}}
-	c.must("POST", "/api/v1/auth/login", map[string]string{"username": user, "password": pass}, nil, 200)
+	c.must("POST", "/api/v1/auth/signin", map[string]string{"username": user, "password": pass}, nil, 200)
 	return c
 }
 

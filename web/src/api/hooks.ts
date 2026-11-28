@@ -171,12 +171,12 @@ export function useUserMutations() {
   };
   return {
     create: useMutation({
-      mutationFn: (in_: { username: string; password: string; displayName: string; email: string; role: string }) =>
+      mutationFn: (in_: { username: string; password: string; displayName: string; email: string; role: string; mustChangePassword: boolean }) =>
         api.post<User>("/api/v1/users", in_),
       onSuccess: done,
     }),
     update: useMutation({
-      mutationFn: ({ id, ...patch }: { id: number; role?: string; status?: string; displayName?: string; email?: string; password?: string }) =>
+      mutationFn: ({ id, ...patch }: { id: number; role?: string; status?: string; displayName?: string; email?: string; password?: string; mustChangePassword?: boolean }) =>
         api.patch<User>(`/api/v1/users/${id}`, patch),
       onSuccess: done,
     }),

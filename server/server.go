@@ -53,7 +53,10 @@ func New(ctx context.Context, o Options) (*Server, error) {
 		return nil, err
 	}
 	mux := http.NewServeMux()
-	rt := &apiutil.Router{Mux: mux, Logger: o.Logger}
+	rt := &apiutil.Router{Mux: mux, Logger: o.Logger, PasswordChangeAllowed: map[string]bool{}}
+	for _, route := range auth.PasswordChangeRoutes {
+		rt.PasswordChangeAllowed[route] = true
+	}
 	p := o.Profile
 
 	authMod := auth.New(o.Store, o.Logger, p.SessionTTL, p.SecureCookies)

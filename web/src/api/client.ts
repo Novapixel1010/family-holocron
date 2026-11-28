@@ -39,6 +39,10 @@ export async function request<T>(method: string, path: string, body?: unknown): 
     if (res.status === 401 && !path.startsWith("/api/v1/auth/")) {
       window.dispatchEvent(new CustomEvent("holocron:unauthorized"));
     }
+    // e.g. an admin assigned a temporary password while this tab was open.
+    if (res.status === 403 && err.code === "password_change_required") {
+      window.dispatchEvent(new CustomEvent("holocron:password-change-required"));
+    }
     throw err;
   }
   if (res.status === 204) return undefined as T;

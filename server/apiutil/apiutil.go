@@ -107,13 +107,26 @@ type Router struct {
 	Logger *slog.Logger
 	// Gate, when set, may reject a request before the handler runs (e.g. disabled plugin).
 	Gate func(r *http.Request) error
+	// PasswordChangeAllowed lists the route patterns a user with a temporary password
+	// may still call (everything else that needs a session is refused).
+	PasswordChangeAllowed map[string]bool
 }
+
+// ErrPasswordChangeRequired is returned to users who must replace a temporary password.
+var ErrPasswordChangeRequired = Errorf(http.StatusForbidden, "password_change_required",
+	"Please change your temporary password before continuing.")
 
 // Handle registers pattern (Go 1.22 mux syntax, e.g. "GET /api/v1/persons/{id}").
 func (rt *Router) Handle(pattern string, access Access, h HandlerFunc) {
 	gate := rt.Gate
+	allowedDuringChange := rt.PasswordChangeAllowed[pattern]
 	rt.Mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
 		u := UserFrom(r.Context())
+		// A temporary password locks the session to the password-change routes.
+		if u != nil && u.MustChangePassword && access != Public && !allowedDuringChange {
+			WriteError(w, rt.Logger, ErrPasswordChangeRequired)
+			return
+		}
 		if !access.allows(u) {
 			if u == nil {
 				WriteError(w, rt.Logger, Errorf(http.StatusUnauthorized, "unauthorized", "Please sign in to continue."))
@@ -136,7 +149,7 @@ func (rt *Router) Handle(pattern string, access Access, h HandlerFunc) {
 
 // WithGate returns a copy of the router that applies gate to every route.
 func (rt *Router) WithGate(gate func(r *http.Request) error) *Router {
-	return &Router{Mux: rt.Mux, Logger: rt.Logger, Gate: gate}
+	return &Router{Mux: rt.Mux, Logger: rt.Logger, Gate: gate, PasswordChangeAllowed: rt.PasswordChangeAllowed}
 }
 
 // WriteJSON writes v as JSON with status.

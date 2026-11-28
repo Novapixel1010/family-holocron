@@ -184,7 +184,7 @@ func TestSetupAuthAndAttribution(t *testing.T) {
 	other.must("POST", "/api/v1/auth/setup", map[string]string{"username": "evil", "password": "password123"}, nil, 409)
 	// Unauthenticated access is rejected.
 	other.must("GET", "/api/v1/persons", nil, nil, 401)
-	other.must("POST", "/api/v1/auth/login", map[string]string{"username": "root", "password": "wrong-password"}, nil, 401)
+	other.must("POST", "/api/v1/auth/signin", map[string]string{"username": "root", "password": "wrong-password"}, nil, 401)
 
 	admin.must("POST", "/api/v1/users", map[string]string{"username": "eddie", "password": "editor-pass", "role": "editor", "displayName": "Eddie"}, nil, 201)
 	admin.must("POST", "/api/v1/users", map[string]string{"username": "vera", "password": "viewer-pass", "role": "viewer"}, nil, 201)
@@ -197,7 +197,7 @@ func TestSetupAuthAndAttribution(t *testing.T) {
 	}
 
 	editor := e.client()
-	editor.must("POST", "/api/v1/auth/login", map[string]string{"username": "eddie", "password": "editor-pass"}, nil, 200)
+	editor.must("POST", "/api/v1/auth/signin", map[string]string{"username": "eddie", "password": "editor-pass"}, nil, 200)
 	var upd person
 	editor.must("PUT", fmt.Sprintf("/api/v1/persons/%d", p.ID), map[string]any{"givenName": "Margaret", "surname": "Holloway-Reed",
 		"birthDate": "1921-04-02", "about": p.About}, &upd, 200)
@@ -206,7 +206,7 @@ func TestSetupAuthAndAttribution(t *testing.T) {
 	}
 
 	viewer := e.client()
-	viewer.must("POST", "/api/v1/auth/login", map[string]string{"username": "vera", "password": "viewer-pass"}, nil, 200)
+	viewer.must("POST", "/api/v1/auth/signin", map[string]string{"username": "vera", "password": "viewer-pass"}, nil, 200)
 	viewer.must("GET", fmt.Sprintf("/api/v1/persons/%d", p.ID), nil, nil, 200)
 	viewer.must("POST", "/api/v1/persons", map[string]any{"givenName": "Nope"}, nil, 403)
 	viewer.must("GET", "/api/v1/backups", nil, nil, 403)
@@ -891,9 +891,9 @@ func TestBioTemplatesAPI(t *testing.T) {
 	admin.must("POST", "/api/v1/users", map[string]string{"username": "eddie", "password": "editor-pass", "role": "editor"}, nil, 201)
 	admin.must("POST", "/api/v1/users", map[string]string{"username": "vera", "password": "viewer-pass", "role": "viewer"}, nil, 201)
 	editor := e.client()
-	editor.must("POST", "/api/v1/auth/login", map[string]string{"username": "eddie", "password": "editor-pass"}, nil, 200)
+	editor.must("POST", "/api/v1/auth/signin", map[string]string{"username": "eddie", "password": "editor-pass"}, nil, 200)
 	viewer := e.client()
-	viewer.must("POST", "/api/v1/auth/login", map[string]string{"username": "vera", "password": "viewer-pass"}, nil, 200)
+	viewer.must("POST", "/api/v1/auth/signin", map[string]string{"username": "vera", "password": "viewer-pass"}, nil, 200)
 
 	type tmpl struct {
 		ID          int64                      `json:"id"`
@@ -967,9 +967,164 @@ func TestBioTemplatesAPI(t *testing.T) {
 	}
 	admin.must("POST", "/api/v1/backups/"+info.Name+"/restore", map[string]string{"confirm": "RESTORE"}, nil, 200)
 	viewer2 := e.client()
-	viewer2.must("POST", "/api/v1/auth/login", map[string]string{"username": "vera", "password": "viewer-pass"}, nil, 200)
+	viewer2.must("POST", "/api/v1/auth/signin", map[string]string{"username": "vera", "password": "viewer-pass"}, nil, 200)
 	viewer2.must("GET", "/api/v1/bio-templates", nil, &list, 200)
 	if len(list) != 2 || list[0].ContentMD != "## A memory\n- Who was there?" {
 		t.Fatalf("templates after restore: %+v", list)
+	}
+}
+
+func TestTemporaryPasswordMustBeChanged(t *testing.T) {
+	e := newEnv(t)
+	admin := setupAdmin(t, e)
+	type me struct {
+		Username           string `json:"username"`
+		MustChangePassword bool   `json:"mustChangePassword"`
+		HasLocalPassword   bool   `json:"hasLocalPassword"`
+	}
+	errCode := func(raw json.RawMessage) string {
+		var x struct {
+			Error struct{ Code string } `json:"error"`
+		}
+		json.Unmarshal(raw, &x)
+		return x.Error.Code
+	}
+	var created me
+	admin.must("POST", "/api/v1/users", map[string]any{"username": "tia", "password": "temporary-1", "role": "editor",
+		"email": "Tia@Example.com", "mustChangePassword": true}, &created, 201)
+	if !created.MustChangePassword || !created.HasLocalPassword {
+		t.Fatalf("created user: %+v", created)
+	}
+	var users []me
+	admin.must("GET", "/api/v1/users", nil, &users, 200)
+	flagged := 0
+	for _, u := range users {
+		if u.MustChangePassword {
+			flagged++
+		}
+	}
+	if flagged != 1 {
+		t.Fatalf("user list should flag only tia: %+v", users)
+	}
+
+	// Sign in (by email, case-insensitively) → told to change the password.
+	tia := e.client()
+	var signed me
+	tia.must("POST", "/api/v1/auth/signin", map[string]string{"username": "tia@example.com", "password": "temporary-1"}, &signed, 200)
+	if signed.Username != "tia" || !signed.MustChangePassword {
+		t.Fatalf("signin response: %+v", signed)
+	}
+	other := e.client() // a second device
+	other.must("POST", "/api/v1/auth/signin", map[string]string{"username": "tia", "password": "temporary-1"}, nil, 200)
+
+	// Only me / change-password / signout work; every other session route is refused.
+	var m me
+	tia.must("GET", "/api/v1/auth/me", nil, &m, 200)
+	if !m.MustChangePassword {
+		t.Fatal("me should report mustChangePassword")
+	}
+	for _, c := range []struct{ method, path string }{
+		{"GET", "/api/v1/persons"}, {"POST", "/api/v1/persons"}, {"GET", "/api/v1/users"}, {"PATCH", "/api/v1/auth/me"},
+		{"GET", "/api/v1/timeline"}, {"GET", "/api/v1/audit"}, {"GET", "/api/v1/bio-templates"}, {"GET", "/api/v1/plugins"},
+		{"GET", "/api/v1/plugins/stats/summary"}, {"GET", "/api/v1/media/1/file"}, {"GET", "/api/v1/gedcom/export"},
+	} {
+		var raw json.RawMessage
+		if code := tia.do(c.method, c.path, map[string]any{"givenName": "x", "displayName": "x"}, &raw); code != 403 || errCode(raw) != "password_change_required" {
+			t.Errorf("%s %s: want 403 password_change_required, got %d %s", c.method, c.path, code, raw)
+		}
+	}
+	tia.must("GET", "/api/v1/status", nil, nil, 200) // public routes don't depend on the session
+	if code, _, _ := tia.raw("/healthz"); code != 200 {
+		t.Fatalf("healthz: %d", code)
+	}
+
+	// change-password rules.
+	var fe struct {
+		Error struct{ Fields map[string]string } `json:"error"`
+	}
+	if code := tia.do("POST", "/api/v1/auth/change-password", map[string]string{"currentPassword": "nope", "newPassword": "brand-new-pass"}, &fe); code != 422 || fe.Error.Fields["currentPassword"] == "" {
+		t.Fatalf("wrong current password: %d %+v", code, fe)
+	}
+	if code := tia.do("POST", "/api/v1/auth/change-password", map[string]string{"currentPassword": "temporary-1", "newPassword": "temporary-1"}, &fe); code != 422 || fe.Error.Fields["newPassword"] == "" {
+		t.Fatalf("same password: %d %+v", code, fe)
+	}
+	if code := tia.do("POST", "/api/v1/auth/change-password", map[string]string{"currentPassword": "temporary-1", "newPassword": "short"}, &fe); code != 422 || fe.Error.Fields["newPassword"] == "" {
+		t.Fatalf("short password: %d %+v", code, fe)
+	}
+	var changed me
+	tia.must("POST", "/api/v1/auth/change-password", map[string]string{"currentPassword": "temporary-1", "newPassword": "brand-new-pass"}, &changed, 200)
+	if changed.MustChangePassword {
+		t.Fatal("change-password should clear the flag")
+	}
+	tia.must("GET", "/api/v1/persons", nil, nil, 200) // unlocked, same session
+	other.must("GET", "/api/v1/auth/me", nil, nil, 401)
+	tia.must("POST", "/api/v1/auth/signin", map[string]string{"username": "tia", "password": "temporary-1"}, nil, 401)
+
+	// Admin reset with a temporary password locks the account again and signs it out.
+	var users2 []struct {
+		ID       int64
+		Username string
+	}
+	admin.must("GET", "/api/v1/users", nil, &users2, 200)
+	var tiaID int64
+	for _, u := range users2 {
+		if u.Username == "tia" {
+			tiaID = u.ID
+		}
+	}
+	admin.must("PATCH", fmt.Sprintf("/api/v1/users/%d", tiaID), map[string]any{"password": "reset-temp-2", "mustChangePassword": true}, &m, 200)
+	if !m.MustChangePassword {
+		t.Fatal("reset with temporary flag")
+	}
+	tia.must("GET", "/api/v1/auth/me", nil, nil, 401)
+	tia.must("POST", "/api/v1/auth/signin", map[string]string{"username": "tia", "password": "reset-temp-2"}, &signed, 200)
+	if !signed.MustChangePassword {
+		t.Fatal("must change after reset")
+	}
+	// Signing out is always possible.
+	tia.must("POST", "/api/v1/auth/signout", nil, nil, 204)
+	tia.must("GET", "/api/v1/auth/me", nil, nil, 401)
+	// A reset without the flag is a regular password.
+	admin.must("PATCH", fmt.Sprintf("/api/v1/users/%d", tiaID), map[string]any{"password": "regular-pass-3"}, &m, 200)
+	if m.MustChangePassword {
+		t.Fatal("reset without temporary flag should clear it")
+	}
+
+	// Ambiguous emails never sign anyone in.
+	admin.must("POST", "/api/v1/users", map[string]any{"username": "tia2", "password": "regular-pass-3", "email": "tia@example.com"}, nil, 201)
+	e.client().must("POST", "/api/v1/auth/signin", map[string]string{"username": "tia@example.com", "password": "regular-pass-3"}, nil, 401)
+
+	// Reserved identity-provider routes.
+	var idps []any
+	e.client().must("GET", "/api/v1/identity-providers", nil, &idps, 200)
+	if len(idps) != 0 {
+		t.Fatalf("identity providers: %+v", idps)
+	}
+	var raw json.RawMessage
+	if code := e.client().do("GET", "/api/v1/auth/oauth/callback?code=x", nil, &raw); code != 501 || errCode(raw) != "identity_provider_unavailable" {
+		t.Fatalf("oauth callback: %d %s", code, raw)
+	}
+
+	// Accounts without a local password (future identity-provider accounts).
+	db, err := sqlite.Open(context.Background(), e.prof.DBPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.CreateUser(context.Background(), store.SystemActor, &store.User{Username: "oidc-user", Email: "o@example.com"}); err != nil {
+		t.Fatalf("an account without a local password should be creatable: %v", err)
+	}
+	if _, err := db.CreateUser(context.Background(), store.SystemActor, &store.User{Username: "oidc-temp", MustChangePassword: true}); err == nil {
+		t.Fatal("temporary flag requires a local password")
+	}
+	if code := e.client().do("POST", "/api/v1/auth/signin", map[string]string{"username": "oidc-user", "password": ""}, &raw); code != 401 || errCode(raw) != "invalid_credentials" {
+		t.Fatalf("no-password account must not sign in locally: %d %s", code, raw)
+	}
+	var listed []me
+	admin.must("GET", "/api/v1/users", nil, &listed, 200)
+	for _, u := range listed {
+		if u.Username == "oidc-user" && (u.HasLocalPassword || u.MustChangePassword) {
+			t.Fatalf("oidc-user flags: %+v", u)
+		}
 	}
 }

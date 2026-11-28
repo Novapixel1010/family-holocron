@@ -7,14 +7,15 @@ import (
 	"github.com/novapixel1010/family-holocron/store"
 )
 
-const userCols = `id, username, display_name, email, password_hash, role, status, created_at, updated_at`
+const userCols = `id, username, display_name, email, password_hash, must_change_password, role, status, created_at, updated_at`
 
 func scanUser(r rowScanner) (*store.User, error) {
 	u := &store.User{}
 	var c, up int64
-	if err := r.Scan(&u.ID, &u.Username, &u.DisplayName, &u.Email, &u.PasswordHash, &u.Role, &u.Status, &c, &up); err != nil {
+	if err := r.Scan(&u.ID, &u.Username, &u.DisplayName, &u.Email, &u.PasswordHash, &u.MustChangePassword, &u.Role, &u.Status, &c, &up); err != nil {
 		return nil, notFound(err)
 	}
+	u.HasLocalPassword = u.PasswordHash != ""
 	u.CreatedAt, u.UpdatedAt = unix(c), unix(up)
 	return u, nil
 }
@@ -42,8 +43,9 @@ func validateUser(u *store.User) error {
 	if u.Status == "" {
 		u.Status = store.UserActive
 	}
-	if u.PasswordHash == "" {
-		return store.Invalid("password", "is required")
+	// An empty hash is allowed: it means "no local password" (identity-provider accounts).
+	if u.MustChangePassword && u.PasswordHash == "" {
+		return store.Invalid("password", "a temporary password needs a local password")
 	}
 	if len(u.DisplayName) > 200 {
 		return store.Invalid("displayName", "is too long")
@@ -53,8 +55,8 @@ func validateUser(u *store.User) error {
 
 func (t *tx) insertUser(ctx context.Context, u *store.User) (int64, error) {
 	ts := now()
-	res, err := t.ExecContext(ctx, `INSERT INTO user (username, display_name, email, password_hash, role, status, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, u.Username, u.DisplayName, u.Email, u.PasswordHash, u.Role, u.Status, ts, ts)
+	res, err := t.ExecContext(ctx, `INSERT INTO user (username, display_name, email, password_hash, must_change_password, role, status, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, u.Username, u.DisplayName, u.Email, u.PasswordHash, u.MustChangePassword, u.Role, u.Status, ts, ts)
 	if isUnique(err) {
 		return 0, &store.ValidationError{Message: "That username is already taken.", Fields: map[string]string{"username": "is already taken"}}
 	}
@@ -108,7 +110,7 @@ func (d *DB) CreateUser(ctx context.Context, actor store.Actor, u *store.User) (
 		}
 		return t.audit(ctx, actor, store.AuditEntry{
 			Action: store.ActionCreate, EntityType: store.EntityUser, EntityID: id, EntityLabel: u.Username,
-			Changes: map[string]store.FieldChange{"role": {To: u.Role}},
+			Changes: map[string]store.FieldChange{"role": {To: u.Role}, "temporaryPassword": {To: u.MustChangePassword}},
 		})
 	})
 	if err != nil {
@@ -125,6 +127,31 @@ func (d *DB) GetUser(ctx context.Context, id int64) (*store.User, error) {
 // GetUserByUsername implements store.Driver.
 func (d *DB) GetUserByUsername(ctx context.Context, username string) (*store.User, error) {
 	return scanUser(d.db.QueryRowContext(ctx, `SELECT `+userCols+` FROM user WHERE username = ?`, strings.TrimSpace(username)))
+}
+
+// GetUserByEmail implements store.Driver.
+func (d *DB) GetUserByEmail(ctx context.Context, email string) (*store.User, error) {
+	email = strings.TrimSpace(email)
+	if email == "" {
+		return nil, store.ErrNotFound
+	}
+	rows, err := d.db.QueryContext(ctx, `SELECT `+userCols+` FROM user WHERE email = ? COLLATE NOCASE LIMIT 2`, email)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var found []*store.User
+	for rows.Next() {
+		u, err := scanUser(rows)
+		if err != nil {
+			return nil, err
+		}
+		found = append(found, u)
+	}
+	if len(found) != 1 { // unknown or ambiguous email: never guess which account
+		return nil, store.ErrNotFound
+	}
+	return found[0], rows.Err()
 }
 
 // ListUsers implements store.Driver.
@@ -177,7 +204,14 @@ func (d *DB) UpdateUser(ctx context.Context, actor store.Actor, id int64, upd st
 		}
 		if upd.PasswordHash != nil {
 			after.PasswordHash = *upd.PasswordHash
+			after.HasLocalPassword = after.PasswordHash != ""
 			changes["password"] = store.FieldChange{From: "•••", To: "•••"}
+		}
+		if upd.MustChangePassword != nil {
+			after.MustChangePassword = *upd.MustChangePassword
+		}
+		if after.MustChangePassword && after.PasswordHash == "" {
+			return store.Invalid("password", "a temporary password needs a local password")
 		}
 		wasActiveAdmin := before.Role == store.RoleAdmin && before.Status == store.UserActive
 		isActiveAdmin := after.Role == store.RoleAdmin && after.Status == store.UserActive
@@ -196,8 +230,8 @@ func (d *DB) UpdateUser(ctx context.Context, actor store.Actor, id int64, upd st
 		if len(changes) == 0 {
 			return nil
 		}
-		if _, err := t.ExecContext(ctx, `UPDATE user SET display_name = ?, email = ?, password_hash = ?, role = ?, status = ?, updated_at = ? WHERE id = ?`,
-			after.DisplayName, after.Email, after.PasswordHash, after.Role, after.Status, now(), id); err != nil {
+		if _, err := t.ExecContext(ctx, `UPDATE user SET display_name = ?, email = ?, password_hash = ?, must_change_password = ?, role = ?, status = ?, updated_at = ? WHERE id = ?`,
+			after.DisplayName, after.Email, after.PasswordHash, after.MustChangePassword, after.Role, after.Status, now(), id); err != nil {
 			return err
 		}
 		if after.Status == store.UserDisabled {
@@ -230,16 +264,17 @@ func truncate(s string, n int) string {
 // GetSession returns a non-expired session and its user.
 func (d *DB) GetSession(ctx context.Context, tokenHash string) (*store.Session, *store.User, error) {
 	row := d.db.QueryRowContext(ctx, `SELECT s.token_hash, s.user_id, s.created_at, s.expires_at, s.last_seen_at, s.user_agent,
-		u.id, u.username, u.display_name, u.email, u.password_hash, u.role, u.status, u.created_at, u.updated_at
+		u.id, u.username, u.display_name, u.email, u.password_hash, u.must_change_password, u.role, u.status, u.created_at, u.updated_at
 		FROM session s JOIN user u ON u.id = s.user_id WHERE s.token_hash = ? AND s.expires_at > ?`, tokenHash, now())
 	s := &store.Session{}
 	u := &store.User{}
 	var sc, se, sl, uc, uu int64
 	err := row.Scan(&s.TokenHash, &s.UserID, &sc, &se, &sl, &s.UserAgent,
-		&u.ID, &u.Username, &u.DisplayName, &u.Email, &u.PasswordHash, &u.Role, &u.Status, &uc, &uu)
+		&u.ID, &u.Username, &u.DisplayName, &u.Email, &u.PasswordHash, &u.MustChangePassword, &u.Role, &u.Status, &uc, &uu)
 	if err != nil {
 		return nil, nil, notFound(err)
 	}
+	u.HasLocalPassword = u.PasswordHash != ""
 	s.CreatedAt, s.ExpiresAt, s.LastSeenAt = unix(sc), unix(se), unix(sl)
 	u.CreatedAt, u.UpdatedAt = unix(uc), unix(uu)
 	return s, u, nil

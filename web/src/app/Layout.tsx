@@ -49,9 +49,9 @@ export function Layout() {
   const signOut = async () => {
     setSigningOut(true);
     try {
-      await api.post("/api/v1/auth/logout");
+      await api.post("/api/v1/auth/signout");
       qc.clear();
-      navigate("/login", { replace: true });
+      navigate("/auth", { replace: true });
     } catch (e) {
       toast(errorMessage(e), "error");
       setSigningOut(false);
