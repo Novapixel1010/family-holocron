@@ -45,7 +45,7 @@ export function AccountSection() {
     }
     setPwBusy(true);
     try {
-      await api.post("/api/v1/auth/me/password", { currentPassword: pw.currentPassword, newPassword: pw.newPassword });
+      await api.post("/api/v1/auth/change-password", { currentPassword: pw.currentPassword, newPassword: pw.newPassword });
       setPw({ currentPassword: "", newPassword: "", confirm: "" });
       toast("Password changed. Other devices have been signed out.");
     } catch (err) {

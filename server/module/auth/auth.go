@@ -87,14 +87,31 @@ func (m *Module) Middleware(next http.Handler) http.Handler {
 	})
 }
 
+// Auth routes, modeled on usememos/memos. Local sign-in, OAuth/OIDC callbacks and
+// identity providers share the /api/v1/auth and /api/v1/identity-providers namespaces,
+// so adding single sign-on later is purely additive: no existing URL changes.
+const (
+	RouteSetup          = "POST /api/v1/auth/setup"
+	RouteSignIn         = "POST /api/v1/auth/signin"          // local username/email + password
+	RouteSignOut        = "POST /api/v1/auth/signout"         // clear the session cookie
+	RouteMe             = "GET /api/v1/auth/me"               // current user, incl. mustChangePassword
+	RouteUpdateMe       = "PATCH /api/v1/auth/me"             // own display name / email
+	RouteChangePassword = "POST /api/v1/auth/change-password" // local password; clears mustChangePassword
+	// Reserved for identity providers (OIDC / OAuth2); see identityProviders and oauthCallback.
+	RouteOAuthCallback     = "GET /api/v1/auth/oauth/callback"
+	RouteIdentityProviders = "GET /api/v1/identity-providers"
+)
+
 // Register mounts auth routes.
 func (m *Module) Register(rt *apiutil.Router) {
-	rt.Handle("POST /api/v1/auth/setup", apiutil.Public, m.setup)
-	rt.Handle("POST /api/v1/auth/login", apiutil.Public, m.login)
-	rt.Handle("POST /api/v1/auth/logout", apiutil.Public, m.logout)
-	rt.Handle("GET /api/v1/auth/me", apiutil.Viewer, m.me)
-	rt.Handle("PATCH /api/v1/auth/me", apiutil.Viewer, m.updateMe)
-	rt.Handle("POST /api/v1/auth/me/password", apiutil.Viewer, m.changePassword)
+	rt.Handle(RouteSetup, apiutil.Public, m.setup)
+	rt.Handle(RouteSignIn, apiutil.Public, m.signIn)
+	rt.Handle(RouteSignOut, apiutil.Public, m.signOut)
+	rt.Handle(RouteMe, apiutil.Viewer, m.me)
+	rt.Handle(RouteUpdateMe, apiutil.Viewer, m.updateMe)
+	rt.Handle(RouteChangePassword, apiutil.Viewer, m.changePassword)
+	rt.Handle(RouteIdentityProviders, apiutil.Public, m.identityProviders)
+	rt.Handle(RouteOAuthCallback, apiutil.Public, m.oauthCallback)
 	rt.Handle("GET /api/v1/users", apiutil.Viewer, m.listUsers)
 	rt.Handle("POST /api/v1/users", apiutil.Admin, m.createUser)
 	rt.Handle("PATCH /api/v1/users/{id}", apiutil.Admin, m.updateUser)
@@ -134,7 +151,22 @@ func clientIP(r *http.Request) string {
 	return host
 }
 
-func (m *Module) login(w http.ResponseWriter, r *http.Request) error {
+// PasswordChangeRoutes are the only non-public routes a user with a temporary
+// password may call; the router answers everything else with 403 password_change_required.
+var PasswordChangeRoutes = []string{RouteMe, RouteChangePassword, RouteSignOut}
+
+// identityProviders lists configured identity providers for the sign-in screen.
+// None exist yet; the route is reserved so the client can rely on it.
+func (m *Module) identityProviders(w http.ResponseWriter, r *http.Request) error {
+	return apiutil.OK(w, []any{})
+}
+
+// oauthCallback is reserved for identity-provider redirects (OIDC / OAuth2).
+func (m *Module) oauthCallback(w http.ResponseWriter, r *http.Request) error {
+	return apiutil.Errorf(http.StatusNotImplemented, "identity_provider_unavailable", "Single sign-on is not configured on this server.")
+}
+
+func (m *Module) signIn(w http.ResponseWriter, r *http.Request) error {
 	var in credentials
 	if err := apiutil.Decode(r, &in); err != nil {
 		return err
@@ -144,7 +176,16 @@ func (m *Module) login(w http.ResponseWriter, r *http.Request) error {
 		return apiutil.Errorf(http.StatusTooManyRequests, "rate_limited", "Too many failed sign-in attempts. Please wait a few minutes and try again.")
 	}
 	invalid := apiutil.Errorf(http.StatusUnauthorized, "invalid_credentials", "Incorrect username or password.")
+	// The identifier may be a username or an email address.
 	u, err := m.Store.GetUserByUsername(r.Context(), in.Username)
+	if errors.Is(err, store.ErrNotFound) && strings.Contains(in.Username, "@") {
+		u, err = m.Store.GetUserByEmail(r.Context(), in.Username)
+	}
+	// Accounts without a local password (identity-provider accounts) can't sign in here;
+	// answer exactly like a wrong password so account types aren't revealed.
+	if err == nil && u.PasswordHash == "" {
+		err = store.ErrNotFound
+	}
 	if errors.Is(err, store.ErrNotFound) {
 		// Spend comparable time to avoid user enumeration by timing.
 		_ = bcrypt.CompareHashAndPassword(m.dummyHash(), []byte(in.Password))
@@ -188,7 +229,7 @@ func (m *Module) startSession(w http.ResponseWriter, r *http.Request, u *store.U
 	return nil
 }
 
-func (m *Module) logout(w http.ResponseWriter, r *http.Request) error {
+func (m *Module) signOut(w http.ResponseWriter, r *http.Request) error {
 	if th := apiutil.SessionFrom(r.Context()); th != "" {
 		if err := m.Store.DeleteSession(r.Context(), th); err != nil {
 			return err
@@ -220,6 +261,8 @@ func (m *Module) updateMe(w http.ResponseWriter, r *http.Request) error {
 	return apiutil.OK(w, out)
 }
 
+// changePassword changes the caller's local password and clears mustChangePassword.
+// It checks the current password, the length rules, and that the new one differs.
 func (m *Module) changePassword(w http.ResponseWriter, r *http.Request) error {
 	var in struct {
 		CurrentPassword string `json:"currentPassword"`
@@ -229,8 +272,15 @@ func (m *Module) changePassword(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	u := apiutil.UserFrom(r.Context())
+	if u.PasswordHash == "" {
+		return apiutil.Errorf(http.StatusBadRequest, "no_local_password", "This account signs in with an identity provider and has no password to change here.")
+	}
 	if bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(in.CurrentPassword)) != nil {
 		return &store.ValidationError{Message: "Your current password is incorrect.", Fields: map[string]string{"currentPassword": "is incorrect"}}
+	}
+	if in.NewPassword == in.CurrentPassword {
+		return &store.ValidationError{Message: "Choose a new password that is different from your current one.",
+			Fields: map[string]string{"newPassword": "must be different from your current password"}}
 	}
 	hash, err := m.HashPassword(in.NewPassword)
 	if err != nil {
@@ -240,14 +290,16 @@ func (m *Module) changePassword(w http.ResponseWriter, r *http.Request) error {
 		}
 		return err
 	}
-	if _, err := m.Store.UpdateUser(r.Context(), u.Actor(), u.ID, store.UpdateUser{PasswordHash: &hash}); err != nil {
+	cleared := false
+	updated, err := m.Store.UpdateUser(r.Context(), u.Actor(), u.ID, store.UpdateUser{PasswordHash: &hash, MustChangePassword: &cleared})
+	if err != nil {
 		return err
 	}
-	// Sign out other devices.
+	// Sign out other devices; this session stays signed in.
 	if err := m.Store.DeleteUserSessions(r.Context(), u.ID, apiutil.SessionFrom(r.Context())); err != nil {
 		return err
 	}
-	return apiutil.NoContent(w)
+	return apiutil.OK(w, updated)
 }
 
 func (m *Module) listUsers(w http.ResponseWriter, r *http.Request) error {
@@ -271,6 +323,8 @@ func (m *Module) createUser(w http.ResponseWriter, r *http.Request) error {
 	var in struct {
 		credentials
 		Role store.Role `json:"role"`
+		// MustChangePassword marks the password as temporary: the user must change it at first sign-in.
+		MustChangePassword bool `json:"mustChangePassword"`
 	}
 	if err := apiutil.Decode(r, &in); err != nil {
 		return err
@@ -281,6 +335,7 @@ func (m *Module) createUser(w http.ResponseWriter, r *http.Request) error {
 	}
 	u, err := m.Store.CreateUser(r.Context(), apiutil.ActorFrom(r.Context()), &store.User{
 		Username: in.Username, DisplayName: in.DisplayName, Email: in.Email, PasswordHash: hash, Role: in.Role,
+		MustChangePassword: in.MustChangePassword,
 	})
 	if err != nil {
 		return err
@@ -299,17 +354,24 @@ func (m *Module) updateUser(w http.ResponseWriter, r *http.Request) error {
 		Role        *store.Role       `json:"role"`
 		Status      *store.UserStatus `json:"status"`
 		Password    *string           `json:"password"`
+		// MustChangePassword with a new password marks it temporary; a new password
+		// without it is a regular password (and clears any earlier requirement).
+		MustChangePassword *bool `json:"mustChangePassword"`
 	}
 	if err := apiutil.Decode(r, &in); err != nil {
 		return err
 	}
-	upd := store.UpdateUser{DisplayName: in.DisplayName, Email: in.Email, Role: in.Role, Status: in.Status}
+	upd := store.UpdateUser{DisplayName: in.DisplayName, Email: in.Email, Role: in.Role, Status: in.Status, MustChangePassword: in.MustChangePassword}
 	if in.Password != nil && *in.Password != "" {
 		hash, err := m.HashPassword(*in.Password)
 		if err != nil {
 			return err
 		}
 		upd.PasswordHash = &hash
+		if upd.MustChangePassword == nil {
+			regular := false
+			upd.MustChangePassword = &regular
+		}
 	}
 	u, err := m.Store.UpdateUser(r.Context(), apiutil.ActorFrom(r.Context()), id, upd)
 	if err != nil {

@@ -74,7 +74,7 @@ Every mutation writes an `audit_log` row **in the same transaction**.
 
 | Table | Purpose / key columns |
 |---|---|
-| `user` | `username` (unique, nocase), `display_name`, `email`, `password_hash` (bcrypt), `role` (`admin`/`editor`/`viewer`), `status` |
+| `user` | `username` (unique, nocase), `display_name`, `email`, `password_hash` (bcrypt; empty = no local password, reserved for identity-provider accounts), `must_change_password` (temporary password; a CHECK allows it only with a local password), `role` (`admin`/`editor`/`viewer`), `status` |
 | `session` | `token_hash` (sha256 of cookie token), `user_id`, `expires_at`, `last_seen_at` |
 | `person` | `uid` (stable external id), `given_name`, `surname`, `nickname`, `sex` (`M/F/X/U`), `birth_date`/`birth_sort`/`birth_place`, `death_date`/`death_sort`/`death_place`, `deceased`, **`about`** (Markdown biography), `portrait_media_id`, attribution |
 | `relationship` | `type` (`parent`/`spouse`), `person1_id`, `person2_id` (parent→child; spouses normalised low→high), `subtype` (biological/adopted/step/foster · married/partner/divorced/separated), `start_date`, `end_date`, `notes`, attribution; unique `(type, person1_id, person2_id)` |
@@ -120,8 +120,10 @@ Access levels: **public**, **viewer** (any signed-in user), **editor**, **admin*
 | `GET /healthz` | public | liveness + DB ping (used by Docker healthcheck) |
 | `GET /api/v1/status` | public | version, `setupRequired` |
 | `POST /api/v1/auth/setup` | public | creates the first admin; 409 once any user exists |
-| `POST /api/v1/auth/login` · `POST /auth/logout` · `GET /auth/me` | public/viewer | cookie session (HttpOnly, SameSite=Lax) |
-| `PATCH /api/v1/auth/me` · `POST /auth/me/password` | viewer | own profile / password |
+| `POST /api/v1/auth/signin` · `POST /auth/signout` · `GET /auth/me` | public/viewer | cookie session (HttpOnly, SameSite=Lax); sign in with username or email; responses include `mustChangePassword` |
+| `POST /api/v1/auth/change-password` | viewer | checks the current password, length rules and that the new one differs; clears `mustChangePassword`; signs out other devices |
+| `PATCH /api/v1/auth/me` | viewer | own display name / email |
+| `GET /api/v1/identity-providers` · `GET /auth/oauth/callback` | public | **reserved** for OIDC/OAuth2: an empty list and `501` until identity providers exist, so adding SSO changes no existing URL |
 | `GET/POST /api/v1/users` · `PATCH /users/{id}` | admin | user management |
 | `GET/POST /api/v1/persons` · `GET/PUT/DELETE /persons/{id}` | viewer/editor | `?q=&limit=&offset=&sort=` |
 | `GET /api/v1/persons/{id}/family` | viewer | parents, spouses, children, siblings |
@@ -144,6 +146,13 @@ Access levels: **public**, **viewer** (any signed-in user), **editor**, **admin*
 
 Errors: `{"error":{"code":"not_found","message":"…","fields":{…}}}`.
 
+**Temporary passwords.** Admins can create users or reset passwords with
+`mustChangePassword: true`. Until that user calls `POST /auth/change-password`, the
+shared router refuses every non-public route except `GET /auth/me`,
+`POST /auth/change-password` and `POST /auth/signout` with
+`403 {"error":{"code":"password_change_required"}}`, and the SPA shows only the
+Change Temporary Password screen.
+
 ### Backup archive format (`holocron-backup-YYYYMMDD-HHMMSS.tar.gz`)
 
 ```
@@ -165,7 +174,7 @@ directory contents → invalidate other sessions → audit `restore` entry.
 
 | Route | Screen |
 |---|---|
-| `/setup`, `/login` | first-admin setup, sign-in |
+| `/setup`, `/auth` | first-admin setup, sign-in (old `/login` links redirect); `/auth/callback` is reserved for identity-provider redirects |
 | `/` | dashboard: counts, recent activity, quick actions |
 | `/people`, `/people/new`, `/people/:id`, `/people/:id/edit` | directory and profile |
 | `/tree`, `/tree/:id` | interactive ancestor/descendant tree (pan/zoom, expand/collapse, focus), rendered with React Flow and laid out with Dagre — see below |

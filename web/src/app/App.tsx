@@ -10,6 +10,8 @@ import "@/plugins";
 import { AuthProvider } from "./auth";
 import { Layout } from "./Layout";
 import { SetupPage } from "@/features/auth/SetupPage";
+import { AuthCallbackPage } from "@/features/auth/AuthCallbackPage";
+import { ChangeTemporaryPasswordPage } from "@/features/auth/ChangeTemporaryPasswordPage";
 import { LoginPage } from "@/features/auth/LoginPage";
 import { HomePage } from "@/features/home/HomePage";
 import { PeoplePage } from "@/features/people/PeoplePage";
@@ -59,10 +61,15 @@ function Gate() {
   useEffect(() => {
     const onUnauthorized = () => {
       qc.removeQueries({ queryKey: ["me"] });
-      navigate(`/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`, { replace: true });
+      navigate(`/auth?next=${encodeURIComponent(window.location.pathname + window.location.search)}`, { replace: true });
     };
+    const onPasswordChangeRequired = () => qc.invalidateQueries({ queryKey: ["me"] });
     window.addEventListener("holocron:unauthorized", onUnauthorized);
-    return () => window.removeEventListener("holocron:unauthorized", onUnauthorized);
+    window.addEventListener("holocron:password-change-required", onPasswordChangeRequired);
+    return () => {
+      window.removeEventListener("holocron:unauthorized", onUnauthorized);
+      window.removeEventListener("holocron:password-change-required", onPasswordChangeRequired);
+    };
   }, [navigate, qc]);
 
   if (status.isPending) return <LoadingState label="Starting Family Holocron…" className="h-full" />;
@@ -77,11 +84,14 @@ function Gate() {
     return loc.pathname === "/setup" ? <SetupPage /> : <Navigate to="/setup" replace />;
   }
   if (loc.pathname === "/setup") return <Navigate to="/" replace />;
-  if (loc.pathname === "/login") return <LoginPage />;
+  // Sign-in lives at /auth (memos-style); /auth/callback is reserved for identity providers.
+  if (loc.pathname === "/login") return <Navigate to={`/auth${loc.search}`} replace />;
+  if (loc.pathname === "/auth/callback") return <AuthCallbackPage />;
+  if (loc.pathname === "/auth") return <LoginPage />;
   if (me.isPending) return <LoadingState label="Signing you in…" className="h-full" />;
   if (me.isError || !me.data) {
     if (me.error instanceof ApiError && me.error.status === 401) {
-      return <Navigate to={`/login?next=${encodeURIComponent(loc.pathname + loc.search)}`} replace />;
+      return <Navigate to={`/auth?next=${encodeURIComponent(loc.pathname + loc.search)}`} replace />;
     }
     return (
       <div className="mx-auto max-w-md p-6 pt-24">
@@ -89,6 +99,8 @@ function Gate() {
       </div>
     );
   }
+  // A temporary password locks every route to the change-password screen.
+  if (me.data.mustChangePassword) return <ChangeTemporaryPasswordPage user={me.data} />;
   return (
     <AuthProvider user={me.data}>
       <Routes>

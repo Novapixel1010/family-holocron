@@ -163,7 +163,7 @@ function RestoreModal({ backup, onClose }: { backup: BackupInfo; onClose: () => 
               onClose();
               if (!res.result.sessionKept) {
                 qc.clear();
-                navigate("/login", { replace: true });
+                navigate("/auth", { replace: true });
               } else {
                 navigate("/settings/backup", { replace: true });
               }

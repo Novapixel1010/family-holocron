@@ -26,6 +26,9 @@ type Driver interface {
 	CreateUser(ctx context.Context, actor Actor, u *User) (*User, error)
 	GetUser(ctx context.Context, id int64) (*User, error)
 	GetUserByUsername(ctx context.Context, username string) (*User, error)
+	// GetUserByEmail finds the single user with this email (case-insensitive);
+	// ErrNotFound if none or more than one account uses it.
+	GetUserByEmail(ctx context.Context, email string) (*User, error)
 	ListUsers(ctx context.Context) ([]*User, error)
 	UpdateUser(ctx context.Context, actor Actor, id int64, upd UpdateUser) (*User, error)
 	CreateSession(ctx context.Context, s *Session) error
